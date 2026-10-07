@@ -12,9 +12,12 @@ A股缠论分析系统 — 用户通过飞书机器人发送股票指令，系�
 
 ## 当前阶段
 
-**阶段1 ✅ 阶段2 ✅ → 阶段3 ⏳（下一步）**
+**阶段1 ✅ 阶段2 ✅ → 阶段3 ⏳ 进行中**
 
-阶段3 第一步：引导用户申请基础设施（全部未申请），详见 `03-infra-setup.md`。
+- 环境全部就绪（本机 Windows, Python 3.11 venv, GitHub, 飞书, DeepSeek+MiMo）
+- **`Q` 即时查询全链路已打通并飞书验证**（数据→多级别缠论→LLM→飞书卡片）
+- 下一步：Sprint 3 任务系统(B/S/C/L)+调度器+止损监控
+- **接续工作先读 `05-dev-progress.md`**
 
 ---
 
@@ -35,12 +38,12 @@ M [provider] [model]  切换LLM模型
 
 | 用途 | 方案 |
 |---|---|
-| 飞书接入 | lark-oapi WebSocket |
-| K线数据 | AKShare（免费）|
-| 缠论计算 | Vespa314/chan.py |
-| LLM | 可热切换，默认 GPT-4o-mini |
-| 调度 | APScheduler + SQLite |
-| 部署 | Docker，阿里云 ECS ecs.e-c1m2.large，上海 |
+| 飞书接入 | lark-oapi WebSocket ✅已接 |
+| K线数据 | 东方财富公开API + curl_cffi（原AKShare, 因TLS指纹改用）|
+| 缠论计算 | Vespa314/chan.py（vendored）|
+| LLM | 可热切换，默认 **deepseek-chat**（MiMo 备用）|
+| 调度 | APScheduler + SQLite（待做）|
+| 部署 | Docker，阿里云 ECS（先本机跑通, 部署推迟）|
 
 ---
 

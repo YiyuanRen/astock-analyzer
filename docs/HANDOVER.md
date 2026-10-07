@@ -18,29 +18,30 @@
 |---|---|---|
 | 阶段1 产品方案设计 | ✅ 完成 | 见 [01-product-spec.md](01-product-spec.md) |
 | 阶段2 技术方案设计 | ✅ 完成 | 见 [02-tech-design.md](02-tech-design.md) |
-| 阶段3 功能实现 | ⏳ **待开始（本次交接目标）** | 见 [03-infra-setup.md](03-infra-setup.md) + [04-implementation-plan.md](04-implementation-plan.md) |
+| 阶段3 功能实现 | ⏳ **进行中** | `Q` 即时查询全链路已打通并飞书验证; 任务系统待做。详见 [05-dev-progress.md](05-dev-progress.md) |
 | 阶段4 功能验证 | ⬜ 未开始 | — |
+
+> **接续工作请先读 [05-dev-progress.md](05-dev-progress.md)** —— 它是最新的实现状态与本机环境快照。
 
 ---
 
-## 阶段3 新 agent 的首要任务
+## 基础设施状态(2026-10-07 更新)
 
-**阶段3 分两步，必须按顺序：**
+本阶段决定: **先本机跑通**(Windows + PowerShell), ECS 部署推迟。
 
-### 第一步：引导用户申请基础设施（全部未申请）
+1. ⬜ 阿里云 ECS（`ecs.e-c1m2.large`，2C4G，上海）—— 筹建中, 暂不需要
+2. ✅ 飞书自建应用（App ID/Secret 已入 `.env`, WebSocket 已验证）
+3. ✅ LLM API Key（DeepSeek 默认 + MiMo 备用, 均已验证）
+4. ✅ Git 远程仓库（`git@github.com:YiyuanRen/astock-analyzer.git`, main+develop）
 
-当前**所有基础设施均未申请**，新 agent 必须先引导用户逐项申请，拿到凭证后才能开发。清单：
+详细申请步骤见 [03-infra-setup.md](03-infra-setup.md); 实际落地细节与踩坑见 [05-dev-progress.md](05-dev-progress.md)。
 
-1. ⬜ 阿里云 ECS 服务器（型号已定：`ecs.e-c1m2.large`，2C4G，上海）
-2. ⬜ 飞书自建应用（拿到 App ID / App Secret）
-3. ⬜ LLM API Key（至少一个 provider，默认推荐 GPT-4o-mini 或 DeepSeek）
-4. ⬜ Git 远程仓库（GitHub 或 Gitee）
+---
 
-**详细申请步骤见 [03-infra-setup.md](03-infra-setup.md)——逐项带截图级操作指引。**
+## 新 agent 的下一步任务
 
-### 第二步：按 Sprint 实现功能
-
-基础设施就绪后，按 [04-implementation-plan.md](04-implementation-plan.md) 的 4 个 Sprint 推进。
+环境与 `Q` 纵向切片已完成。下一步按 [04-implementation-plan.md](04-implementation-plan.md) 推进 **Sprint 3**:
+任务系统(B/S/C/L 指令 + SQLite) → 调度器(定时分析/盘中止损) → 主动推送 → LLM 热切换。
 
 ---
 
@@ -53,8 +54,15 @@
 - **多级别联立：** 必须支持（日线定方向，30分/5分定精确入场价），这是缠论"区间套"精髓。
 - **LLM 作用：** 只做"结构化计算结果 → 自然语言报告"的组装，**不做缠论计算本身**。
 - **概率指标：** 缠论不输出概率，已改为"买卖点类型 + 赢赔比"。
-- **部署：** 云服务器 7×24，Docker 容器化。
+- **部署：** 云服务器 7×24，Docker 容器化（当前先本机跑通，部署推迟）。
 - **LLM 可配置：** 支持运行时热切换（飞书 M 指令），模型池支持 openai/anthropic/grok/gemini/qwen/deepseek/kimi/glm/mimo。
+
+### 阶段3 实施期新增/修正的决策（2026-10-07）
+
+- **数据源改用东方财富公开API + curl_cffi**：本机 Clash 代理环境下 requests/urllib3 直连东方财富被 TLS 指纹拦截，改用 curl_cffi(impersonate=chrome) 直连并带重试；功能等价 AKShare 且更稳。
+- **MiMo endpoint 修正**：Token Plan(`tp-` key) 正确地址为 `https://token-plan-cn.xiaomimimo.com/v1`（原文档 `api.mimo.ai/v1` 作废）。
+- **默认模型 DeepSeek**：DeepSeek 更快；MiMo 可 M 指令切换。LLM 超时放宽到 25s。
+- **chan.py vendoring**：源码内置 `vendor/chan.py`(commit 429d6ed)，运行时加 sys.path；多级别区间套由 chan.py 原生 lv_list 支持。
 
 ---
 
@@ -65,8 +73,9 @@
 | [HANDOVER.md](HANDOVER.md) | 本文件，交接入口 |
 | [01-product-spec.md](01-product-spec.md) | 阶段1：产品方案（报告字段、指令集、任务逻辑、分析频率） |
 | [02-tech-design.md](02-tech-design.md) | 阶段2：技术方案（架构、选型、LLM适配层、成本分析） |
-| [03-infra-setup.md](03-infra-setup.md) | 阶段3准备：基础设施申请指引（全部未申请） |
+| [03-infra-setup.md](03-infra-setup.md) | 阶段3准备：基础设施申请指引 |
 | [04-implementation-plan.md](04-implementation-plan.md) | 阶段3：Sprint 行动拆解 |
+| [05-dev-progress.md](05-dev-progress.md) | **阶段3 开发进度 & 本机环境快照（最新, 接续工作先读这个）** |
 
 ---
 
