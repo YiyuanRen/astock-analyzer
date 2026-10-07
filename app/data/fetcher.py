@@ -10,12 +10,16 @@ HTTP 引擎: curl_cffi (impersonate=chrome), 以浏览器 TLS 指纹访问, 规�
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta
 
 import pandas as pd
 from curl_cffi import requests as cr
 
 from app.config import get_config
+from app.logging_utils import get_logger
+
+logger = get_logger("data.fetcher")
 
 _KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 _QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
@@ -31,6 +35,22 @@ def _secid(code: str) -> str:
     """6位代码 -> eastmoney secid (market.code)。6/9 开头为上交所(1), 其余深/北(0)。"""
     market = 1 if code[0] in ("6", "9") else 0
     return f"{market}.{code}"
+
+
+def _cr_get(url: str, params: dict, timeout: int, retries: int = 3):
+    """带重试的 curl_cffi GET, 应对偶发的连接中断(curl 56 等)。"""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            r = cr.get(url, params=params, impersonate=_IMPERSONATE, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if attempt < retries - 1:
+                logger.warning("请求失败(第%d次重试): %s", attempt + 1, e)
+                time.sleep(0.8 * (attempt + 1))
+    raise last_err
 
 
 def _parse_klines(payload: dict) -> pd.DataFrame:
@@ -68,8 +88,7 @@ def _get_klines(code: str, klt: int, lookback_days: int, fqt: int = 1) -> pd.Dat
         "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": _FIELDS2,
     }
-    r = cr.get(_KLINE_URL, params=params, impersonate=_IMPERSONATE, timeout=15)
-    r.raise_for_status()
+    r = _cr_get(_KLINE_URL, params, timeout=15)
     return _parse_klines(r.json())
 
 
@@ -87,15 +106,44 @@ def fetch_5min(code: str, months: int = 1) -> pd.DataFrame:
 
 def fetch_realtime_price(code: str) -> float | None:
     """实时最新价(盘中止损监控用)。f43=最新价, f59=小数位数。"""
-    params = {"secid": _secid(code), "fields": "f43,f57,f58,f59,f170"}
-    r = cr.get(_QUOTE_URL, params=params, impersonate=_IMPERSONATE, timeout=10)
-    r.raise_for_status()
+    params = {"secid": _secid(code), "fields": "f43,f59"}
+    r = _cr_get(_QUOTE_URL, params, timeout=10)
     data = r.json().get("data") or {}
     raw = data.get("f43")
-    if raw in (None, "-"):
+    if raw in (None, "-", 0):
         return None
-    decimals = data.get("f59", 2)
-    return round(float(raw) / (10 ** int(decimals)), int(decimals))
+    decimals = int(data.get("f59", 2))
+    return round(float(raw) / (10 ** decimals), decimals)
+
+
+def fetch_quote(code: str) -> dict:
+    """实时盘口快照: 名称/最新价/涨跌幅/涨跌额/今开/最高/最低/昨收/成交量。
+
+    eastmoney 价格类字段需除以 10^f59; f170(涨跌幅%) 固定除以 100。
+    """
+    fields = "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60,f169,f170"
+    r = _cr_get(_QUOTE_URL, {"secid": _secid(code), "fields": fields}, timeout=10)
+    d = r.json().get("data") or {}
+    if not d:
+        return {}
+    dec = int(d.get("f59", 2))
+    scale = 10 ** dec
+
+    def px(v):
+        return round(float(v) / scale, dec) if v not in (None, "-") else None
+
+    return {
+        "code": d.get("f57", code),
+        "name": d.get("f58"),
+        "price": px(d.get("f43")),
+        "change": px(d.get("f169")),
+        "change_pct": round(float(d["f170"]) / 100, 2) if d.get("f170") not in (None, "-") else None,
+        "open": px(d.get("f46")),
+        "high": px(d.get("f44")),
+        "low": px(d.get("f45")),
+        "prev_close": px(d.get("f60")),
+        "volume": float(d["f47"]) if d.get("f47") not in (None, "-") else None,
+    }
 
 
 async def fetch_all_levels(code: str) -> dict[str, pd.DataFrame]:
