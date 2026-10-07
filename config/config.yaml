@@ -2,8 +2,9 @@
 
 # --- LLM 模型池 (当前仅 mimo / deepseek 启用; 其余保留待启用) ---
 llm:
-  default_provider: deepseek
-  default_model: deepseek-chat
+  # 默认用 MiMo (DeepSeek 账户当前余额不足 402; 充值后可切回或用 M 指令热切换)
+  default_provider: mimo
+  default_model: mimo-v2.6-flash
   timeout_seconds: 15          # 超时走降级(纯结构化报告)
   providers:
     deepseek:

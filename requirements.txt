@@ -5,7 +5,10 @@
 lark-oapi>=1.4.0
 
 # --- 行情数据 ---
+# 数据源: 东方财富公开API(与akshare同源); HTTP引擎用 curl_cffi 做浏览器TLS指纹,
+# 规避部分网络环境对 requests/urllib3 的 TLS 指纹拦截。akshare 保留作参考/备用。
 akshare>=1.14.0
+curl_cffi>=0.7.0
 pandas>=2.1.0
 numpy>=1.26.0
 
