@@ -1,0 +1,54 @@
+# ===== A股缠论分析系统 主配置 =====
+
+# --- LLM 模型池 (当前仅 mimo / deepseek 启用; 其余保留待启用) ---
+llm:
+  default_provider: deepseek
+  default_model: deepseek-chat
+  timeout_seconds: 15          # 超时走降级(纯结构化报告)
+  providers:
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      env_key: DEEPSEEK_API_KEY
+      models: ["deepseek-chat", "deepseek-reasoner"]
+      enabled: true
+    mimo:
+      # 小米 MiMo Token Plan (key 以 tp- 开头) 的 OpenAI 兼容地址
+      base_url: "https://token-plan-cn.xiaomimimo.com/v1"
+      env_key: MIMO_API_KEY
+      models: ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro"]
+      enabled: true
+    # ---- 以下保留, 暂不启用 ----
+    openai:    { base_url: null, env_key: OPENAI_API_KEY, enabled: false }
+    anthropic: { base_url: null, env_key: ANTHROPIC_API_KEY, enabled: false }
+    qwen:      { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", env_key: DASHSCOPE_API_KEY, enabled: false }
+    grok:      { base_url: "https://api.x.ai/v1", env_key: XAI_API_KEY, enabled: false }
+    gemini:    { base_url: "https://generativelanguage.googleapis.com/v1beta/openai/", env_key: GEMINI_API_KEY, enabled: false }
+    kimi:      { base_url: "https://api.moonshot.cn/v1", env_key: MOONSHOT_API_KEY, enabled: false }
+    glm:       { base_url: "https://open.bigmodel.cn/api/paas/v4", env_key: ZHIPU_API_KEY, enabled: false }
+
+# --- 行情数据 (AKShare) ---
+data:
+  daily_years: 3        # 日线回溯年数
+  m30_months: 6         # 30分钟线回溯月数
+  m5_months: 1          # 5分钟线回溯月数
+  max_concurrency: 3    # AKShare 并发上限
+  request_interval_sec: 1.5
+  cache_ttl_hours: 2    # 分析缓存有效期
+
+# --- 缠论引擎 ---
+chan:
+  min_klines: 30        # 最少K线数, 不足则"数据不足,建议观望"
+
+# --- 调度 ---
+scheduler:
+  timezone: "Asia/Shanghai"
+  daily_analysis_cron: "0 5 15 * * mon-fri"   # 每交易日 15:05
+  stop_loss_interval_min: 3                     # S任务盘中止损监控
+  intraday_tracking_interval_min: 30            # B任务信号后低级别跟踪
+
+# --- 存储 ---
+storage:
+  db_path: "data/astock.db"
+
+# --- 风险提示 (每份报告末尾必带) ---
+risk_disclaimer: "⚠️ 仅供参考，不构成投资建议"

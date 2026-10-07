@@ -1,0 +1,41 @@
+# ===== Secrets =====
+.env
+*.key
+*.pem
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+
+# ===== Virtual env =====
+.venv/
+venv/
+env/
+
+# ===== Data / DB =====
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Test / cache =====
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
