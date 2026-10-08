@@ -43,6 +43,13 @@ $env:PYTHONUTF8=1
 - 排查: `ssh astock-ecs "docker logs --tail 100 astock-analyzer"`。详见 docs/05-dev-progress.md「ECS 部署与运维」。
 - `docker kill` 不会触发自动重启(视为手动停止), 测自愈要 kill -9 容器主进程。
 
+## 阿里云 CLI
+
+- 已装 `C:\AliyunCLI\aliyun.exe`(在用户 PATH, 新开终端可直接 `aliyun`); profile `default`, OAuth 登录, 默认地域 `cn-shanghai`, 不含 AccessKey。
+- ECS 实例: `sh-astock` (`i-uf651wm0q2pbwv0kn2yp`, 公网 IP 8.153.91.185)。
+- 凭证过期/失效: `aliyun configure --mode OAuth --profile default`(浏览器授权); 查看状态 `aliyun configure list`。
+- 查实例: `aliyun ecs DescribeInstances --RegionId cn-shanghai --output cols=InstanceId,InstanceName,Status rows=Instances.Instance[]`
+
 ## 环境坑(务必注意)
 
 1. 运行 Python 带 `PYTHONUTF8=1`; 脚本内 `sys.stdout.reconfigure(encoding="utf-8")`(控制台 GBK)。
