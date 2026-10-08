@@ -32,8 +32,8 @@ _KLT_DAILY = 101
 
 
 def _secid(code: str) -> str:
-    """6位代码 -> eastmoney secid (market.code)。6/9 开头为上交所(1), 其余深/北(0)。"""
-    market = 1 if code[0] in ("6", "9") else 0
+    """6位代码 -> eastmoney secid (market.code)。5/6/9 开头为上交所(1, 含沪市ETF), 其余深/北(0)。"""
+    market = 1 if code[0] in ("5", "6", "9") else 0
     return f"{market}.{code}"
 
 

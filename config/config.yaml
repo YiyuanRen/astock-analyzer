@@ -43,9 +43,19 @@ chan:
 # --- 调度 ---
 scheduler:
   timezone: "Asia/Shanghai"
-  daily_analysis_cron: "0 5 15 * * mon-fri"   # 每交易日 15:05
-  stop_loss_interval_min: 3                     # S任务盘中止损监控
-  intraday_tracking_interval_min: 30            # B任务信号后低级别跟踪
+  daily_analysis: { hour: 15, minute: 5 }       # 每交易日 15:05 日报(B+S)
+  # B 盘中跟踪: 对齐 30 分钟K线收盘后 1 分钟 (9:30-11:30, 13:00-15:00 的 K 线收盘点)
+  intraday_b_times: ["10:01", "10:31", "11:01", "11:31", "13:31", "14:01", "14:31"]
+  stop_loss_interval_min: 3                     # S任务盘中止损监控(只比价)
+  stop_alert_repeat_min: 30                     # 止损触发后重复提醒间隔
+  misfire_grace_sec: 1800
+
+# --- 任务/止损规则 ---
+task:
+  structural_buffer: 0.015   # 结构止损: 日线最近支撑下方 1.5%
+  cost_stop_pct: 0.08        # 成本保护: 成本 × (1-8%), 与结构止损取较高者
+  fallback_stop_pct: 0.07    # 找不到结构支撑时: 现价 × (1-7%)
+  fallback_target_pct: 0.10  # 找不到压力位时: 现价 × (1+10%)
 
 # --- 存储 ---
 storage:
