@@ -1,7 +1,6 @@
-"""指令路由: 把解析后的指令分发到对应处理逻辑, 返回回复文本。
+"""指令路由: 把解析后的指令分发到对应处理逻辑, 返回回复(文本或卡片字典)。
 
-当前实现: Q 即时查询全链路。B/S/C/L 任务系统(Sprint3)暂为占位。
-M 可查看当前模型; 切换(热配置)待任务系统接入 SQLite 后支持。
+ctx: message_id / chat_id / chat_type / is_group / sender_open_id (任务按 chat_id 归属)
 """
 from __future__ import annotations
 
@@ -9,39 +8,24 @@ import asyncio
 
 from app.commands.model_cmd import handle_m
 from app.commands.parser import HELP_TEXT, parse
-from app.data import fetcher
-from app.engine.chan_analyzer import ChanAnalyzer
-from app.engine.multi_level import multi_level_analyze
-from app.engine.report_builder import build_report
-from app.llm.report_generator import generate_report
 from app.logging_utils import get_logger
+from app.services.analysis_service import StockNotFound, analyze_stock
 
 logger = get_logger("commands.router")
 
-_analyzer = ChanAnalyzer()
+NOT_FOUND = "未查询到 {code} 的行情，请确认股票代码是否正确。"
 
 
-async def handle_q(code: str) -> str:
+async def handle_q(code: str):
     logger.info("Q 查询 %s", code)
-    quote = await asyncio.to_thread(fetcher.fetch_quote, code)
-    if not quote or quote.get("price") is None:
-        return f"未查询到 {code} 的行情，请确认股票代码是否正确。"
-
-    data = await fetcher.fetch_all_levels(code)
-    daily = _analyzer.analyze(data["daily"], "daily")
-    m30 = _analyzer.analyze(data["m30"], "30m")
-    m5 = _analyzer.analyze(data["m5"], "5m")
-    ml = multi_level_analyze(daily, m30, m5, quote.get("price"))
-    report = build_report(quote, daily, m30, m5, ml, data["daily"])
-    markdown = await generate_report(report)
-
-    name = quote.get("name") or code
-    direction = ml.get("operation_direction")
-    template = {"买入": "red", "卖出": "green"}.get(direction, "blue")
-    return {"card": {"title": f"📊 {name} {code}", "markdown": markdown, "template": template}}
+    try:
+        result = await analyze_stock(code)
+    except StockNotFound:
+        return NOT_FOUND.format(code=code)
+    return result.to_card()
 
 
-async def handle_async(text: str, ctx: dict | None = None, notify=None) -> str:
+async def handle_async(text: str, ctx: dict | None = None, notify=None):
     ctx = ctx or {}
     cmd = parse(text)
     if cmd.kind == "Q":
@@ -49,12 +33,12 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None) -> str:
             notify(f"📊 正在分析 {cmd.code}，预计 10-15 秒...")
         return await handle_q(cmd.code)
     if cmd.kind in ("B", "S", "C", "L"):
-        return "任务跟踪功能开发中（Sprint 3）。当前可用 Q 做即时查询，例如：Q 000001"
+        return "任务跟踪功能开发中。当前可用 Q 做即时查询，例如：Q 000001"
     if cmd.kind == "M":
         return await handle_m(ctx, cmd.provider, cmd.model)
     return HELP_TEXT
 
 
-def handle(text: str, ctx: dict | None = None, notify=None) -> str:
+def handle(text: str, ctx: dict | None = None, notify=None):
     """同步入口(供飞书回调在工作线程中调用)。"""
     return asyncio.run(handle_async(text, ctx or {}, notify))

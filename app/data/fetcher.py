@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from curl_cffi import requests as cr
@@ -102,6 +102,15 @@ def fetch_30min(code: str, months: int = 6) -> pd.DataFrame:
 
 def fetch_5min(code: str, months: int = 1) -> pd.DataFrame:
     return _get_klines(code, 5, int(months * 31), fqt=1)
+
+
+def fetch_index_trade_dates(days: int = 30) -> set[date]:
+    """上证指数(1.000001)最近 N 天的日K日期集合 —— 数据驱动的交易日历(自动跳过节假日)。"""
+    beg = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+    params = {"secid": "1.000001", "klt": _KLT_DAILY, "fqt": 0, "beg": beg, "end": "20500000",
+              "fields1": "f1", "fields2": "f51"}
+    klines = (_cr_get(_KLINE_URL, params, timeout=15).json().get("data") or {}).get("klines") or []
+    return {date.fromisoformat(k[:10]) for k in klines}
 
 
 def fetch_realtime_price(code: str) -> float | None:

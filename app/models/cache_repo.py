@@ -18,11 +18,13 @@ def get(stock_code: str) -> dict | None:
             "session_key": row["session_key"]}
 
 
-def put(stock_code: str, payload: dict, session_key: str | None) -> None:
+def put(stock_code: str, payload: dict, session_key: str | None,
+        analyzed_at: str | None = None) -> None:
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO analysis_cache(stock_code, result_json, analyzed_at, session_key)"
             " VALUES (?,?,?,?) ON CONFLICT(stock_code) DO UPDATE SET"
             " result_json=excluded.result_json, analyzed_at=excluded.analyzed_at,"
             " session_key=excluded.session_key",
-            (stock_code, json.dumps(payload, ensure_ascii=False, default=str), now_str(), session_key))
+            (stock_code, json.dumps(payload, ensure_ascii=False, default=str),
+             analyzed_at or now_str(), session_key))

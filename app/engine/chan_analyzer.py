@@ -63,12 +63,12 @@ class ChanAnalyzer:
     def __init__(self, config: dict | None = None):
         app_cfg = get_config()
         self.min_klines = int(app_cfg.chan.get("min_klines", 30))
-        self._chan_config = CChanConfig(config or {
+        self._chan_conf_dict = config or {
             "trigger_step": True,     # 手动喂K线, 不走内置数据源
             "bi_strict": True,
             "macd_algo": "peak",
             "print_warning": False,
-        })
+        }
 
     def analyze(self, df: pd.DataFrame, level: str = "daily") -> dict:
         if df is None or len(df) < self.min_klines:
@@ -77,7 +77,7 @@ class ChanAnalyzer:
 
         kl_type = LEVEL_MAP.get(level, KL_TYPE.K_DAY)
         chan = CChan(code="_", data_src=DATA_SRC.BAO_STOCK, lv_list=[kl_type],
-                     config=self._chan_config, autype=AUTYPE.QFQ)
+                     config=CChanConfig(dict(self._chan_conf_dict)), autype=AUTYPE.QFQ)
         chan.trigger_load({kl_type: _df_to_klus(df)})
         kl = chan.kl_datas[kl_type]
 
