@@ -44,7 +44,7 @@
 | 调度 | APScheduler | cron+interval，SQLite jobstore |
 | 存储 | SQLite | 单机无依赖 |
 | 容器化 | Docker + docker-compose | restart:always保活 |
-| 云服务器 | 阿里云 ECS ecs.e-c1m2.large | 2C4G，上海，¥199/年 |
+| 云服务器 | 阿里云 ECS ecs.e-c1m2.large | 2C4G，上海 |
 | 监控告警 | 飞书 webhook 自推送 | 异常推到私聊 |
 
 ---
@@ -208,10 +208,8 @@ LLM 生成报告：                                3-6s（API）
 | Claude Haiku 4.5 | 1.00 | 5.00 | ★★★★★ |
 
 ### 云服务器
-- 阿里云 ECS ecs.e-c1m2.large 2C4G 上海：包年 ¥199/年（≈¥16.6/月）
-- 总月均（含LLM+可选域名）：约 ¥25-35/月
-
----
+- 阿里云 ECS ecs.e-c1m2.large 2C4G 上海：包年标准价约 ¥800-1200/年（≈¥70-100/月），以官网实时报价为准
+- 总月均（含LLM+可选域名）：约 ¥80-120/月
 
 ## 8. 部署与保活
 
