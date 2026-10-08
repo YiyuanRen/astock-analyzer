@@ -36,6 +36,13 @@ $env:PYTHONUTF8=1
 .\.venv\Scripts\python.exe scripts\smoke_chan.py         # chan.py 冒烟
 ```
 
+## 线上(ECS, Docker)
+
+- 机器人已部署在阿里云 ECS, **线上是唯一实例, 本机不要同时 `run_bot`**(同一飞书应用会被抢消息)。
+- SSH 别名 `ssh astock-ecs`; 发布: `ssh astock-ecs "bash /opt/astock-analyzer/scripts/ecs_deploy.sh"`(先把代码 push 到 develop)。
+- 排查: `ssh astock-ecs "docker logs --tail 100 astock-analyzer"`。详见 docs/05-dev-progress.md「ECS 部署与运维」。
+- `docker kill` 不会触发自动重启(视为手动停止), 测自愈要 kill -9 容器主进程。
+
 ## 环境坑(务必注意)
 
 1. 运行 Python 带 `PYTHONUTF8=1`; 脚本内 `sys.stdout.reconfigure(encoding="utf-8")`(控制台 GBK)。

@@ -62,6 +62,15 @@
 
 ---
 
+## 2026-10-09 — 部署上线 ECS(Docker)
+
+- **部署方式**: GitHub deploy key(只读) → ECS `git pull` → 服务器上 `docker compose build` → 容器运行(`restart: always`, `./data` 卷, `.env` 运行时注入, TZ=Asia/Shanghai, 日志轮转)。依赖版本由 `constraints.txt` 固定为本机已验证版本。
+- **验证**: 容器内全链路(ECS→东方财富/DeepSeek, Q≈6s)、飞书私聊+群、`kill -9` 模拟崩溃自动拉起并重连、重启后任务不丢。
+- **踩坑**: `docker kill` 不会触发 `restart: always`(视为手动停止)。
+- **运维**: `scripts/ecs_deploy.sh` 一键发布; 本机机器人停用, 线上为唯一实例。
+
+---
+
 ## 2026-10-08 — 阶段3 功能全部实现(本机)
 
 - **新增需求: 飞书群聊支持** — 以 `chat_id` 统一会话; 群里仅响应 @机器人, 任务群共享, 在哪提交就推回哪(私聊→私聊, 群→群), 推送不 @ 人。需开通权限 `im:message.group_at_msg:readonly`。

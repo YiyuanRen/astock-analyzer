@@ -8,7 +8,8 @@
 ## 一句话现状
 
 **Q/B/S/C/L/M 六条指令全部实现, 支持飞书私聊 + 群聊, 定时任务(15:05日报/B盘中跟踪/S止损监控)与主动推送已实现; 本机真机联调通过, 111 个单测全绿。**
-**下一步: 部署到阿里云 ECS(运行时已装好, 尚未部署任何代码)。**
+**已部署到阿里云 ECS(Docker 容器, 2026-10-09 上线并经飞书私聊+群验证; 本机机器人已停, 线上是唯一实例)。**
+**下一步: 观察首个真实交易日的定时任务自动触发(盘中 B 跟踪/S 止损/15:05 日报)。**
 
 ### 关键设计(已落地, 勿随意推翻)
 - **会话模型**: 以飞书 `chat_id` 统一"会话"。任务按 `chat_id` 归属(私聊任务属于该私聊, 群任务**群共享**); 在哪个会话提交指令, 回复与主动推送就发回哪个会话。群里只响应 **@机器人** 的消息(启动时取机器人 open_id 判定), 剥离 `@_user_N` 占位符。推送**不 @ 人**。
@@ -35,7 +36,7 @@
 | 飞书自建应用 | ✅ 已接入验证 | App ID/Secret 在 `.env` |
 | LLM: DeepSeek | ✅ 默认, 已充值 | `DEEPSEEK_API_KEY` in `.env` |
 | LLM: MiMo | ✅ 备用(可 M 切换) | `MIMO_API_KEY` (tp- Token Plan) in `.env` |
-| 阿里云 ECS | ✅ 已购买, 运行时已装好(2026-10-08), **尚未部署任何代码** | `8.153.91.185`, Ubuntu 22.04.5, 2C/3.6G+4G swap, root; 私钥 `secrets/ecs_access_key.pem`(gitignore), `.env` 的 `ECS_HOST/ECS_USER/ECS_SSH_KEY`; 本机 SSH 别名 `ssh astock-ecs`(在 `~/.ssh/config`) |
+| 阿里云 ECS | ✅ **已部署上线**(2026-10-09), 容器 `astock-analyzer` 运行中, 见下方「ECS 部署与运维」 | `8.153.91.185`, Ubuntu 22.04.5, 2C/3.6G+4G swap, root; 私钥 `secrets/ecs_access_key.pem`(gitignore), `.env` 的 `ECS_HOST/ECS_USER/ECS_SSH_KEY`; 本机 SSH 别名 `ssh astock-ecs`(在 `~/.ssh/config`) |
 
 ### ECS 已装运行时(由 `scripts/ecs_setup.sh` 幂等安装, 可重跑)
 
@@ -126,12 +127,40 @@ $env:PYTHONUTF8=1
 
 ---
 
+## ECS 部署与运维
+
+**架构**: GitHub(deploy key 只读) → ECS `/opt/astock-analyzer` `git pull` → `docker compose build` → 容器 `astock-analyzer` 运行 `scripts/run_bot.py`(机器人+调度器同进程)。
+`.env`(密钥, 仅 root 可读)与 `data/`(SQLite 卷)在服务器上, 不进镜像/仓库。镜像 `python:3.11-slim`, 依赖版本由 `constraints.txt` 固定为本机已验证版本。
+
+```powershell
+# 发布新版本(本机 push 到 develop 后):
+ssh astock-ecs "bash /opt/astock-analyzer/scripts/ecs_deploy.sh"      # git pull + build + 重启 + 打日志
+
+# 日常运维(都在 ECS 上, 目录 /opt/astock-analyzer/docker)
+docker compose ps / logs --tail 100 / restart / down / up -d
+docker compose exec app python scripts/show_tasks.py                  # 查任务库
+docker compose exec app python scripts/trigger_job.py daily --force --send   # 线上手动触发日报
+
+# 修改 .env 后需重建容器才生效: docker compose up -d --force-recreate
+# 更新 .env: 本机过滤掉 ECS_* 行后 scp 到 /opt/astock-analyzer/.env, chmod 600
+```
+
+**已验证**: 容器内 TZ=Asia/Shanghai、环境注入、ECS→东方财富/DeepSeek 全链路(Q 约 6s)、飞书私聊+群、`kill -9` 模拟崩溃后 `restart: always` 自动拉起并重连飞书、重启后任务不丢。
+
+**踩坑**
+1. **`docker kill`/`docker stop` 不会被 `restart: always` 拉起**(被视为手动停止); 真实崩溃(进程被 kill -9/OOM)才会自动重启。别用 `docker kill` 测自愈。
+2. `ecs_deploy.sh` 用 `docker compose up -d --build`; 首次构建约 5 分钟(装依赖), 之后有层缓存, 只改代码很快。
+3. 同一飞书应用只能有一个实例在线(本机和 ECS 二选一), 否则消息被抢、定时推送重复。
+4. 构建/运维命令一律写成 `.sh` 经 scp 执行, 避免 PowerShell→ssh 的引号被吞。
+5. ECS 无 Docker Hub 直连, 依赖 `/etc/docker/daemon.json` 里的镜像加速源(第三方, 失效需更换); 基础镜像 `python:3.11-slim` 已缓存在本机。
+
+---
+
 ## 还没做(下一步)
 
-- [ ] **Docker 化 + 部署到阿里云 ECS**(ECS 运行时已就绪; 待写 Dockerfile/docker-compose(`restart: always`, `./data` 卷), 并解决 ECS 上拉代码: 在 ECS 生成 deploy key 加到 GitHub, 或用 scp/rsync)
-  - chan.py 需 Python 3.11+, 镜像用 `python:3.11-slim`; 部署需带上 `.env`(不入库, 单独 scp); `data/` 卷持久化 SQLite
-  - 部署后在 ECS 上同样做私聊 + 群各测一遍, 并**停掉本机机器人**(同一飞书应用不要两处同时跑, 否则消息会被两边抢/重复处理)
-  - 线上验证需等一个真实交易日观察 15:05 日报、盘中 B 跟踪、止损监控的自动触发(本机仅用 trigger_job 手动触发验证过)
+- [ ] **观察首个真实交易日的定时任务自动触发**: 盘中 B 跟踪(10:01 起)、S 止损监控(9:30 起每3分钟)、15:05 日报。至今只用 `trigger_job` 手动触发验证过。线上排查: `ssh astock-ecs "docker logs --tail 100 astock-analyzer"`。
+- [ ] 线上当前有联调任务(私聊 B 000001 / S 600519 @1200×100; 群 B 000001), 想清理在飞书发 `C 代码`。
+- [ ] (可选)CI/CD: GitHub Actions 构建镜像推 ACR, ECS 只 pull(当前是服务器上 build, 见 ECS 部署与运维)。
 - [ ] 把自己的 open_id 配进 `.env` 的 `ADMIN_OPEN_IDS`(联调时用假 ID 验证了拦截, `.env` 当前为空=不限制); open_id 见机器人日志 `sender=`
 - [ ] (可选)飞书卡片流式"思考过程"(04 文档任务4.4, 待用户明确)
 - [ ] (可选)推送失败(机器人被移出群/群解散)时的任务自动挂起/告警; 目前仅记日志并保留任务
