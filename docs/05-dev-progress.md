@@ -23,7 +23,7 @@
 | 飞书自建应用 | ✅ 已接入验证 | App ID/Secret 在 `.env` |
 | LLM: DeepSeek | ✅ 默认, 已充值 | `DEEPSEEK_API_KEY` in `.env` |
 | LLM: MiMo | ✅ 备用(可 M 切换) | `MIMO_API_KEY` (tp- Token Plan) in `.env` |
-| 阿里云 ECS | ⬜ 筹建中 | 本阶段"先本机跑通", 暂不需要 |
+| 阿里云 ECS | ✅ 已购买, SSH 已验证(2026-10-08) | `8.153.91.185`, Ubuntu 22.04.5, 2C/3.6G, root; 私钥 `secrets/ecs_access_key.pem`(gitignore), 配置在 `.env` 的 `ECS_HOST/ECS_USER/ECS_SSH_KEY`。尚未部署任何代码 |
 
 > `.env` 已 gitignore, **从不提交**。模板见 `config/.env.example`。
 

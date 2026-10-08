@@ -2,6 +2,7 @@
 .env
 *.key
 *.pem
+/secrets/
 
 # ===== Python =====
 __pycache__/
