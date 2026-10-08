@@ -1,0 +1,17 @@
+# 机密与本机文件不进镜像
+.env
+secrets/
+.venv/
+.git/
+data/
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.idea/
+.vscode/
+# 构建无关
+docs/
+tests/
+*.md
+!requirements.txt

@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: astock-analyzer:latest
+    container_name: astock-analyzer
+    restart: always              # 崩溃/服务器重启后自动拉起
+    env_file: ../.env            # 密钥运行时注入, 不进镜像
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ../data:/app/data        # SQLite 持久化: 重建容器不丢任务
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
