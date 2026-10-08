@@ -53,6 +53,7 @@ scheduler:
 # --- 任务/止损规则 ---
 task:
   structural_buffer: 0.015   # 结构止损: 日线最近支撑下方 1.5%
+  min_stop_gap: 0.02         # 候选支撑须比现价低至少 2%, 否则取更低一档(避免止损贴着现价被噪音触发)
   cost_stop_pct: 0.08        # 成本保护: 成本 × (1-8%), 与结构止损取较高者
   fallback_stop_pct: 0.07    # 找不到结构支撑时: 现价 × (1-7%)
   fallback_target_pct: 0.10  # 找不到压力位时: 现价 × (1+10%)
