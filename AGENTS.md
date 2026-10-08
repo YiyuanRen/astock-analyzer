@@ -22,7 +22,14 @@ $env:PYTHONUTF8=1
 # 启动飞书机器人(WebSocket 长连接)
 .\.venv\Scripts\python.exe scripts\run_bot.py
 
-# 分层验证脚本
+# 单元测试(111个, 不依赖网络, 改完代码先跑)
+.\.venv\Scripts\python.exe -m pytest
+
+# 手动触发定时任务 / 查任务库
+.\.venv\Scripts\python.exe scripts\trigger_job.py daily --force [--send]
+.\.venv\Scripts\python.exe scripts\show_tasks.py
+
+# 分层验证脚本(访问真实网络)
 .\.venv\Scripts\python.exe scripts\test_data.py          # 数据层
 .\.venv\Scripts\python.exe scripts\test_llm.py           # LLM 连通性
 .\.venv\Scripts\python.exe scripts\test_integration.py   # 数据->chan.py
@@ -38,10 +45,14 @@ $env:PYTHONUTF8=1
    `git -c user.name="YiyuanRen" -c user.email="YiyuanRen@users.noreply.github.com" commit ...`
 5. 分支: 功能开发在 `develop`。
 
+5. PowerShell 会吞掉命令行参数里的 `@1200`(展开运算符), 带 `@` 的 S 指令请在飞书里测; 远程 ssh 命令用 `.sh` 文件 + scp, 别在双引号里嵌 `$`。
+6. 飞书群聊必须从 @ 菜单选中机器人(真 mention); 同一飞书应用不要在两处同时运行(本机和 ECS 只留一个)。
+
 ## 架构(app/)
 
-bot(飞书) → commands(解析/路由) → engine(chan_analyzer/multi_level/report_builder) + data(fetcher) + llm(factory/report_generator)。
-config.py 读 config.yaml+.env; logging_utils.py 统一日志。
+bot(飞书: 会话上下文/群@/推送) → commands(解析/路由/M) → services(analysis_service 分析+缓存, task_service B/S/C/L, notifier) → engine(chan_analyzer/multi_level/holding/report_builder) + data(fetcher/trading_calendar) + llm(factory/config_store/report_generator)。
+scheduler/jobs.py: 15:05 日报 / B 盘中 / S 止损, 推送到任务所属 chat_id。models/: SQLite(tasks 按 chat_id 隔离)。
+config.py 读 config.yaml+.env; logging_utils.py 统一日志。详细设计见 docs/05-dev-progress.md「关键设计」。
 
 ## 风险提示约束
 

@@ -1,14 +1,26 @@
 # 阶段3 开发进度 & 上下文快照
 
 > 本文件记录**当前实际实现状态**与**本机开发环境细节**, 供新会话无缝接续。
-> 最近更新: 2026-10-07
+> 最近更新: 2026-10-08
 
 ---
 
 ## 一句话现状
 
-**环境全部就绪 + `Q` 即时查询全链路已打通并在飞书验证通过。**
-下一步: 任务系统(B/S/C/L) + 调度器 + 止损监控 (Sprint 3)。
+**Q/B/S/C/L/M 六条指令全部实现, 支持飞书私聊 + 群聊, 定时任务(15:05日报/B盘中跟踪/S止损监控)与主动推送已实现; 本机真机联调通过, 111 个单测全绿。**
+**下一步: 部署到阿里云 ECS(运行时已装好, 尚未部署任何代码)。**
+
+### 关键设计(已落地, 勿随意推翻)
+- **会话模型**: 以飞书 `chat_id` 统一"会话"。任务按 `chat_id` 归属(私聊任务属于该私聊, 群任务**群共享**); 在哪个会话提交指令, 回复与主动推送就发回哪个会话。群里只响应 **@机器人** 的消息(启动时取机器人 open_id 判定), 剥离 `@_user_N` 占位符。推送**不 @ 人**。
+- **S 止损**: 结构止损(日线最近支撑, 须低于现价≥2%, 再下浮1.5%) + 成本保护(成本×0.92, 取较高者); 每日 15:05 重算且**只上移不下移**; 重发 `S 代码` 重置。参数在 `config.yaml: task`。
+- **止损提醒节奏**: 当日首次触及立即推; 仍低于则每30分钟重复; 回升重置; 次日重新首推。
+- **B 盘中**: 时点对齐30分钟K线收盘+1分钟(10:01,10:31,11:01,11:31,13:31,14:01,14:31); 日线买点才推, 信号键=`类型|所在笔|是否30m共振`去重(共振确认时升级再推一次); 15:05 日报刷新信号键。盘中推送带"盘中信号, 以日线收盘确认为准"。
+- **日报**: B、S 每天都推完整卡片; S 卡片头部(成本/市值/浮盈/止损/目标)由代码确定性生成, 不经 LLM。
+- **互斥**: 同会话同股票最多1个活跃任务; `S` 自动取消 B(历史保留); 已有 S 时发 `B` 被拒; 重发 `B` 提示已存在。
+- **M**: 切换前做1次探活; **管理员白名单** `.env: ADMIN_OPEN_IDS`(逗号分隔; 空=不限制); 无权限者被拒并显示其 open_id。
+- **交易日历**: 上证指数日K日期集合(数据驱动, 自动跳过节假日, 已实测国庆休市), 失败退化为工作日。
+- **Q 缓存**: 收盘/休市同 session 一直有效, 盘中<2h 有效, 跨收盘失效; 定时任务 `force` 重算并写回缓存。
+- **调度器**: 内存 jobstore(不引入 SQLAlchemy); 重启后 cron 自动重建, 持久状态全在 `tasks` 表。
 
 ---
 
@@ -64,10 +76,21 @@ $env:PYTHONUTF8=1
 .\.venv\Scripts\python.exe scripts\cli.py Q 000001
 .\.venv\Scripts\python.exe scripts\cli.py          # 交互式
 
-# 启动飞书机器人(WebSocket 长连接, 阻塞运行)
+# 启动飞书机器人 + 定时任务调度器(阻塞运行)
 .\.venv\Scripts\python.exe scripts\run_bot.py
 
-# 各层单测脚本
+# 单元测试(111个, 不依赖网络)
+.\.venv\Scripts\python.exe -m pytest
+
+# 手动触发定时任务(不必等盘中): dry-run 只打印; --send 真实推送到各任务所属会话
+.\.venv\Scripts\python.exe scripts\trigger_job.py daily --force --send
+.\.venv\Scripts\python.exe scripts\trigger_job.py intraday --force
+.\.venv\Scripts\python.exe scripts\trigger_job.py stoploss --force --price 600519=1100
+# 查看数据库任务(PowerShell 里 `@1200` 会被吃掉, 带 @ 的指令请在飞书里测或加引号)
+.\.venv\Scripts\python.exe scripts\show_tasks.py [--all]
+# CLI 模拟会话: $env:CLI_CHAT_ID="x"; $env:CLI_GROUP=1; $env:CLI_OPEN_ID="ou_x"
+
+# 各层集成脚本(访问真实网络)
 .\.venv\Scripts\python.exe scripts\smoke_chan.py        # chan.py 合成数据冒烟
 .\.venv\Scripts\python.exe scripts\test_data.py         # 数据层三周期+实时价
 .\.venv\Scripts\python.exe scripts\test_llm.py          # DeepSeek/MiMo 连通性
@@ -88,23 +111,30 @@ $env:PYTHONUTF8=1
 | 报告组装 | `app/engine/report_builder.py` | ✅ 标准字段 + 成交量状态 + 纯文本降级渲染 |
 | LLM 报告 | `app/llm/report_generator.py` | ✅ 结构化→自然语言, 25s 超时降级, 卡片友好 Markdown |
 | LLM 适配 | `app/llm/base.py` `factory.py` `providers/openai_compatible.py` | ✅ OpenAI 兼容(DeepSeek/MiMo) |
-| 命令解析 | `app/commands/parser.py` | ✅ Q/B/S/C/L/M 六指令 |
-| 命令路由 | `app/commands/router.py` | ✅ Q 全链路; B/S/C/L 占位; M 仅查看 |
-| 飞书机器人 | `app/bot/feishu_bot.py` | ✅ 收消息/文本回复/Markdown 卡片/中间态提示/工作线程 |
+| 命令解析 | `app/commands/parser.py` | ✅ Q/B/S/C/L/M 六指令(M 的 model 可省略) |
+| 命令路由 | `app/commands/router.py` | ✅ 六指令全部接通, ctx 带 chat_id/sender_open_id |
+| M 指令/权限 | `app/commands/model_cmd.py` `permissions.py` | ✅ 查看/热切换/探活/管理员白名单 |
+| 飞书机器人 | `app/bot/feishu_bot.py` `message_utils.py` | ✅ 会话上下文/群@判定/回复/卡片/按 chat_id 主动推送(含重试) |
+| 存储层 | `app/models/database.py` `task_repo.py` `cache_repo.py` | ✅ SQLite(WAL, 每次新连接), tasks 部分唯一索引(chat_id,stock_code) |
+| LLM 热配置 | `app/llm/config_store.py` | ✅ 每次调用前读库, 无记录回落 config.yaml |
+| 交易日历 | `app/data/trading_calendar.py` | ✅ 数据驱动交易日 + 交易时段 + session_key |
+| 分析服务 | `app/services/analysis_service.py` | ✅ 完整流水线 + 缓存(Q/B/S/调度共用) |
+| 持仓逻辑 | `app/engine/holding.py` | ✅ 结构止损/成本保护/目标/ratchet/盈亏/头部 |
+| 任务服务 | `app/services/task_service.py` | ✅ B/S/C/L(按会话隔离, 互斥规则) |
+| 通知器 | `app/services/notifier.py` | ✅ Console/Recording; FeishuBot 即通知器 |
+| 调度/任务 | `app/scheduler/jobs.py` | ✅ 日报/B盘中/S止损 + build_scheduler |
 
 ---
 
-## 还没做(下一步 Sprint 3 / 后续)
+## 还没做(下一步)
 
-- [ ] **任务系统**: SQLite 模型(tasks/llm_config/analysis_cache), B/S/C/L 指令完整实现
-- [ ] **调度器**: APScheduler —— 每交易日 15:05 定时分析(B+S) + S 任务盘中止损监控(9:30-15:00 每3min, 只比价) + **B 任务盘中跟踪(每30min 完整跑多级别分析, 有买点才推送, 无信号静默)**
-  > 2026-10-08 用户在 GitHub 上修订了设计: B 盘中跟踪**不再**以"日线出现买点"为前置条件, 改为定时全量分析; 以 `01-product-spec.md`/`04-implementation-plan.md` 最新版为准。
-- [ ] **主动推送**: 买卖点出现/触及止损 推送到飞书
-- [ ] **LLM 热切换**: M 指令写 SQLite llm_config, 调用前读取(当前 M 只能查看)
-- [ ] **分析缓存**: 同日已分析的 Q 读缓存(SQLite, 超2小时/收盘失效)
-- [ ] **Docker 化 + 部署到阿里云 ECS**(ECS 运行时已就绪; 待写 Dockerfile/docker-compose, 并解决 ECS 上拉代码: 需在 ECS 生成 deploy key 加到 GitHub, 或用 scp/rsync)
-  - 注意 chan.py 需 Python 3.11+, 镜像用 `python:3.11-slim`; 部署需带上 `.env`(不入库, 单独 scp)
+- [ ] **Docker 化 + 部署到阿里云 ECS**(ECS 运行时已就绪; 待写 Dockerfile/docker-compose(`restart: always`, `./data` 卷), 并解决 ECS 上拉代码: 在 ECS 生成 deploy key 加到 GitHub, 或用 scp/rsync)
+  - chan.py 需 Python 3.11+, 镜像用 `python:3.11-slim`; 部署需带上 `.env`(不入库, 单独 scp); `data/` 卷持久化 SQLite
+  - 部署后在 ECS 上同样做私聊 + 群各测一遍, 并**停掉本机机器人**(同一飞书应用不要两处同时跑, 否则消息会被两边抢/重复处理)
+  - 线上验证需等一个真实交易日观察 15:05 日报、盘中 B 跟踪、止损监控的自动触发(本机仅用 trigger_job 手动触发验证过)
+- [ ] 把自己的 open_id 配进 `.env` 的 `ADMIN_OPEN_IDS`(联调时用假 ID 验证了拦截, `.env` 当前为空=不限制); open_id 见机器人日志 `sender=`
 - [ ] (可选)飞书卡片流式"思考过程"(04 文档任务4.4, 待用户明确)
+- [ ] (可选)推送失败(机器人被移出群/群解散)时的任务自动挂起/告警; 目前仅记日志并保留任务
 
 ---
 
@@ -113,7 +143,11 @@ $env:PYTHONUTF8=1
 - 30分钟K线东方财富该接口只返回约1个月(~248根), 达不到方案的6个月, 但够缠论计算。
 - `multi_level.py` 的入场/止损/目标为**规则化启发式**(chan.py 只给缠论元素, 不给策略价), 需实盘回测校准。
 - `macd_divergence` 目前近似判断(以是否1类买卖点推断), 未来可从 chan.py bsp 特征精确取。
-- 全局 CRLF 警告(cosmetic): 可加 `.gitattributes` 规范为 LF(部署到 Linux 更稳), 暂未加。
+- 盘中日线最后一根未收盘, chan.py 的买卖点可能消失(已用"盘中信号"标注+去重缓解, 以15:05为准)。
+- 本机开发库 `data/astock.db` 里留有联调任务(私聊: B 000001 / S 600519 @1200×100; 群: B 000001), 想清理在飞书发 `C 代码`。
+- `trigger_job.py` 退出时会打印一条 lark SDK 的 `Task was destroyed but it is pending` 错误日志, 无害(SDK 后台缓存清理任务)。
+- 群聊必须从飞书 @ 菜单选中机器人(真 @); 手敲文本 `@分析助手` 不是 mention, 会被忽略。
+- CRLF 警告(cosmetic): 已为 `.sh`/`Dockerfile` 加 `.gitattributes` 强制 LF, 其余告警可忽略。
 - commit 身份用内联 `-c user.name/email`(未改全局 git config); 如需固定可设本仓库 local config。
 
 ---

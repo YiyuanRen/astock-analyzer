@@ -18,7 +18,7 @@
 |---|---|---|
 | 阶段1 产品方案设计 | ✅ 完成 | 见 [01-product-spec.md](01-product-spec.md) |
 | 阶段2 技术方案设计 | ✅ 完成 | 见 [02-tech-design.md](02-tech-design.md) |
-| 阶段3 功能实现 | ⏳ **进行中** | `Q` 即时查询全链路已打通并飞书验证; 任务系统待做。详见 [05-dev-progress.md](05-dev-progress.md) |
+| 阶段3 功能实现 | ⏳ **本机功能已全部完成, 待部署 ECS** | Q/B/S/C/L/M 全部实现, 支持私聊+群聊, 定时任务与主动推送已联调通过, 111 个单测。详见 [05-dev-progress.md](05-dev-progress.md) |
 | 阶段4 功能验证 | ⬜ 未开始 | — |
 
 > **接续工作请先读 [05-dev-progress.md](05-dev-progress.md)** —— 它是最新的实现状态与本机环境快照。
@@ -40,8 +40,8 @@
 
 ## 新 agent 的下一步任务
 
-环境与 `Q` 纵向切片已完成。下一步按 [04-implementation-plan.md](04-implementation-plan.md) 推进 **Sprint 3**:
-任务系统(B/S/C/L 指令 + SQLite) → 调度器(定时分析/盘中止损) → 主动推送 → LLM 热切换。
+本机功能(Q/B/S/C/L/M + 群聊 + 调度/推送)已全部完成并真机验证。下一步: **Docker 化并部署到阿里云 ECS**(ECS 运行时已装好, 见 05-dev-progress.md「还没做」), 部署后在线上私聊+群各测一遍, 并等一个真实交易日观察定时任务自动触发。
+> 阶段3 的产品/设计增量决策(群聊会话模型、S 止损规则、提醒节奏、B 盘中时点等)见 05-dev-progress.md「关键设计」。
 
 ---
 
