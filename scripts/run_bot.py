@@ -15,10 +15,12 @@ from dotenv import load_dotenv  # noqa: E402
 
 from app.bot.feishu_bot import FeishuBot  # noqa: E402
 from app.commands.router import handle  # noqa: E402
+from app.models.database import init_db  # noqa: E402
 
 
 def main():
     load_dotenv()
+    init_db()
     app_id = os.getenv("FEISHU_APP_ID")
     app_secret = os.getenv("FEISHU_APP_SECRET")
     if not app_id or not app_secret:

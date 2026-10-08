@@ -45,8 +45,8 @@ def get_llm_client(provider: str, model: str) -> BaseLLMClient:
 
 
 def get_default_client() -> BaseLLMClient:
-    """按 config.yaml 的默认 provider/model 返回客户端 (阶段3后期会改为读 SQLite 热配置)。"""
-    cfg = get_config()
-    provider = cfg.llm.get("default_provider")
-    model = cfg.llm.get("default_model")
+    """返回当前生效模型的客户端: 每次调用都读 SQLite 热配置(M 指令切换), 无记录回落 config.yaml。"""
+    from app.llm.config_store import get_llm_config
+
+    provider, model, _ = get_llm_config()
     return get_llm_client(provider, model)

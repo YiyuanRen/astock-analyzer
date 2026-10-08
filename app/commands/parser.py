@@ -18,7 +18,7 @@ _PATTERNS = {
     "S": re.compile(r"^S\s+(\d{6})(?:\s+@([\d.]+))?(?:\s+(\d+))?$", re.I),
     "C": re.compile(r"^C\s+(\d{6})$", re.I),
     "L": re.compile(r"^L$", re.I),
-    "M": re.compile(r"^M(?:\s+(\w+)\s+(\S+))?$", re.I),
+    "M": re.compile(r"^M(?:\s+(\w+)(?:\s+(\S+))?)?$", re.I),
 }
 
 HELP_TEXT = (
