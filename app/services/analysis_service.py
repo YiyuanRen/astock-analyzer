@@ -68,10 +68,11 @@ class AnalysisResult:
     def price(self) -> float | None:
         return self.quote.get("price")
 
-    def to_card(self, header_md: str = "", template: str | None = None) -> dict:
+    def to_card(self, header_md: str = "", template: str | None = None,
+                show_cache_note: bool = True) -> dict:
         """生成飞书卡片回复; header_md 为代码确定性生成的头部区块(持仓/任务状态等)。"""
         body = (header_md + "\n\n---\n\n" if header_md else "") + self.markdown
-        if self.from_cache:
+        if self.from_cache and show_cache_note:
             hhmm = datetime.fromisoformat(self.analyzed_at).strftime("%H:%M")
             body += f"\n\n_(缓存于 {hhmm}，非盘中实时)_"
         return {"card": {"title": self.payload["title"], "markdown": body,

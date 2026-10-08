@@ -92,6 +92,12 @@ def is_trading_time(now: datetime | None = None) -> bool:
     return MORNING[0] <= t <= MORNING[1] or AFTERNOON[0] <= t <= AFTERNOON[1]
 
 
+def in_session_hours(now: datetime | None = None) -> bool:
+    """9:30-15:00 的宽口径(含午休), 用于 B 盘中跟踪(11:31 是 11:30 那根K线收盘后的检查点)。"""
+    t = (now or _now()).time()
+    return OPEN_TIME <= t <= CLOSE_TIME
+
+
 def is_market_open(now: datetime | None = None) -> bool:
     now = now or _now()
     return is_trading_day(now.date(), now) and is_trading_time(now)
