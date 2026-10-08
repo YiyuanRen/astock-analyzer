@@ -176,7 +176,7 @@ CREATE TABLE analysis_cache (
 实现 `app/scheduler/jobs.py`：
 
 ```python
-# 每交易日15:05 触发所有活跃任务的分析
+# 每交易日 15:05 触发所有活跃任务（B和S）的完整分析，推送日报
 scheduler.add_job(
     daily_analysis_job,
     CronTrigger(day_of_week='mon-fri', hour=15, minute=5,
@@ -184,37 +184,53 @@ scheduler.add_job(
     id='daily_analysis'
 )
 
-# S任务盘中止损监控（交易时间9:30-15:00，每3分钟）
+# B任务盘中跟踪：交易时间每30分钟，拉取K线→多级别缠论分析→有买点则推送
+scheduler.add_job(
+    intraday_b_tracking_job,
+    CronTrigger(day_of_week='mon-fri',
+                hour='9-11,13-14', minute='*/30',
+                timezone='Asia/Shanghai'),
+    id='intraday_b_tracking'
+)
+
+# S任务止损监控：交易时间每3分钟，只比价不做完整缠论计算
 scheduler.add_job(
     stop_loss_monitor_job,
-    IntervalTrigger(minutes=3),
+    CronTrigger(day_of_week='mon-fri',
+                hour='9-11,13-14', minute='*/3',
+                timezone='Asia/Shanghai'),
     id='stop_loss_monitor'
 )
+```
+
+**B任务盘中分析逻辑：**
+```python
+async def intraday_b_tracking_job():
+    b_tasks = db.get_active_b_tasks()
+    for task in b_tasks:
+        # 拉取3周期K线（并发）
+        daily_df, m30_df, m5_df = await asyncio.gather(
+            fetcher.fetch_daily(task.stock_code),
+            fetcher.fetch_30min(task.stock_code),
+            fetcher.fetch_5min(task.stock_code),
+        )
+        # 多级别缠论分析
+        result = multi_level_analyze(daily_df, m30_df, m5_df)
+        # 有买点信号才推送，无信号静默
+        if result.get("buy_sell_point") in ("一买", "二买", "三买"):
+            report = report_builder.build(result, task)
+            await bot.send_card(task.user_id, report)
 ```
 
 **止损监控逻辑：**
 ```python
 async def stop_loss_monitor_job():
-    s_tasks = db.get_active_s_tasks()
+    s_tasks = db.get_active_s_tasks_with_stop_loss()
     for task in s_tasks:
         price = await fetcher.fetch_realtime_price(task.stock_code)
         if price <= task.stop_loss:
             await bot.send_alert(task.user_id,
                 f"⚠️ {task.stock_code} 当前价 {price}，已触及止损位 {task.stop_loss}，请注意！")
-```
-
-### 任务3.4 B任务精确入场跟踪
-当日线分析出现买点信号时，激活低级别30分钟跟踪（每30分钟运行一次）：
-
-```python
-# 动态添加/移除跟踪任务
-def activate_intraday_tracking(stock_code: str):
-    scheduler.add_job(
-        intraday_tracking_job,
-        IntervalTrigger(minutes=30),
-        id=f'intraday_{stock_code}',
-        args=[stock_code]
-    )
 ```
 
 ---
