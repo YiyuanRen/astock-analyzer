@@ -23,7 +23,19 @@
 | 飞书自建应用 | ✅ 已接入验证 | App ID/Secret 在 `.env` |
 | LLM: DeepSeek | ✅ 默认, 已充值 | `DEEPSEEK_API_KEY` in `.env` |
 | LLM: MiMo | ✅ 备用(可 M 切换) | `MIMO_API_KEY` (tp- Token Plan) in `.env` |
-| 阿里云 ECS | ✅ 已购买, SSH 已验证(2026-10-08) | `8.153.91.185`, Ubuntu 22.04.5, 2C/3.6G, root; 私钥 `secrets/ecs_access_key.pem`(gitignore), 配置在 `.env` 的 `ECS_HOST/ECS_USER/ECS_SSH_KEY`。尚未部署任何代码 |
+| 阿里云 ECS | ✅ 已购买, 运行时已装好(2026-10-08), **尚未部署任何代码** | `8.153.91.185`, Ubuntu 22.04.5, 2C/3.6G+4G swap, root; 私钥 `secrets/ecs_access_key.pem`(gitignore), `.env` 的 `ECS_HOST/ECS_USER/ECS_SSH_KEY`; 本机 SSH 别名 `ssh astock-ecs`(在 `~/.ssh/config`) |
+
+### ECS 已装运行时(由 `scripts/ecs_setup.sh` 幂等安装, 可重跑)
+
+Docker 29.8.2 + Compose v5.6.0(开机自启, 日志轮转 10m×3) / Python 3.11.17 / git / build-essential / tmux / pip 阿里云镜像 / 时区 Asia/Shanghai。
+已实测: 容器可跑, `python:3.11-slim` 已拉取, venv+pip 安装正常。
+
+ECS 踩坑:
+1. **阿里云 docker-ce apt 镜像偶发"同步中"**(文件大小校验失败)→ 脚本已加重试, 回落官方源, 再回落 Ubuntu 自带 `docker.io`。
+2. **Docker Hub 在 ECS 直连不通** → `/etc/docker/daemon.json` 配了 `docker.m.daocloud.io`、`docker.1ms.run` 镜像加速(第三方公共源, 失效时需更换)。
+3. 远程命令别用 PowerShell 双引号内嵌 `$`/嵌套引号 → 一律写成 `.sh` 文件 `scp` 上传再 `ssh "bash /tmp/x.sh"`;
+   长任务用 `nohup ... &` 在服务器后台跑, 避免本地中断杀掉 apt(曾因此留下孤儿 apt 占 dpkg 锁)。
+4. 安全组目前只需放行 22; 机器人走飞书 WebSocket 出站长连接, 无需开放入站端口。
 
 > `.env` 已 gitignore, **从不提交**。模板见 `config/.env.example`。
 
@@ -85,11 +97,13 @@ $env:PYTHONUTF8=1
 ## 还没做(下一步 Sprint 3 / 后续)
 
 - [ ] **任务系统**: SQLite 模型(tasks/llm_config/analysis_cache), B/S/C/L 指令完整实现
-- [ ] **调度器**: APScheduler —— 每交易日 15:05 定时分析 + S 任务盘中止损监控(每3min) + B 任务信号后低级别跟踪
+- [ ] **调度器**: APScheduler —— 每交易日 15:05 定时分析(B+S) + S 任务盘中止损监控(9:30-15:00 每3min, 只比价) + **B 任务盘中跟踪(每30min 完整跑多级别分析, 有买点才推送, 无信号静默)**
+  > 2026-10-08 用户在 GitHub 上修订了设计: B 盘中跟踪**不再**以"日线出现买点"为前置条件, 改为定时全量分析; 以 `01-product-spec.md`/`04-implementation-plan.md` 最新版为准。
 - [ ] **主动推送**: 买卖点出现/触及止损 推送到飞书
 - [ ] **LLM 热切换**: M 指令写 SQLite llm_config, 调用前读取(当前 M 只能查看)
 - [ ] **分析缓存**: 同日已分析的 Q 读缓存(SQLite, 超2小时/收盘失效)
-- [ ] **Docker 化 + 部署到阿里云 ECS**(等 ECS 就绪)
+- [ ] **Docker 化 + 部署到阿里云 ECS**(ECS 运行时已就绪; 待写 Dockerfile/docker-compose, 并解决 ECS 上拉代码: 需在 ECS 生成 deploy key 加到 GitHub, 或用 scp/rsync)
+  - 注意 chan.py 需 Python 3.11+, 镜像用 `python:3.11-slim`; 部署需带上 `.env`(不入库, 单独 scp)
 - [ ] (可选)飞书卡片流式"思考过程"(04 文档任务4.4, 待用户明确)
 
 ---
