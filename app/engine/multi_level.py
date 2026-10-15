@@ -36,7 +36,8 @@ def _safe(d: dict, key, default=None):
 
 
 def multi_level_analyze(daily: dict, m30: dict, m5: dict,
-                        realtime_price: float | None = None) -> dict:
+                        realtime_price: float | None = None,
+                        decimals: int = 2) -> dict:
     out: dict = {
         "daily": {
             "segment_direction": _safe(daily, "segment_direction"),
@@ -91,12 +92,12 @@ def multi_level_analyze(daily: dict, m30: dict, m5: dict,
         out["operation_direction"] = "买入" if confirmed else "观望"
         # 精确入场: 5分钟最近笔低点 ~ 当前价
         m5_low = _safe(m5, "bi_low")
-        entry_low = m5_low if (m5_low and m5_low <= cur) else round(cur * 0.99, 2)
-        entry_high = round(cur * 1.005, 2)
+        entry_low = m5_low if (m5_low and m5_low <= cur) else round(cur * 0.99, decimals)
+        entry_high = round(cur * 1.005, decimals)
         # 止损: 入场低点下方 (跌破则买点证伪), 参考日线中枢下沿
-        stop = round(min(entry_low, support or entry_low) * 0.985, 2)
-        target = resistance or (seg_high if seg_high else round(cur * 1.1, 2))
-        entry_mid = round((entry_low + entry_high) / 2, 2)
+        stop = round(min(entry_low, support or entry_low) * 0.985, decimals)
+        target = resistance or (seg_high if seg_high else round(cur * 1.1, decimals))
+        entry_mid = round((entry_low + entry_high) / 2, decimals)
         out.update({
             "entry_zone": (entry_low, entry_high),
             "stop_loss": stop,

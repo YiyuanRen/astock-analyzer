@@ -8,6 +8,7 @@ import asyncio
 
 from app.commands.model_cmd import handle_m
 from app.commands.parser import HELP_TEXT, parse
+from app.data.market import display_code
 from app.logging_utils import get_logger
 from app.services import task_service
 from app.services.analysis_service import StockNotFound, analyze_stock
@@ -31,11 +32,11 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None):
     cmd = parse(text)
     if cmd.kind == "Q":
         if notify:
-            notify(f"📊 正在分析 {cmd.code}，预计 10-15 秒...")
+            notify(f"📊 正在分析 {display_code(cmd.code)}，预计 10-15 秒...")
         return await handle_q(cmd.code)
     if cmd.kind in ("B", "S"):
         if notify:
-            notify(f"📊 正在分析 {cmd.code}，预计 10-15 秒...")
+            notify(f"📊 正在分析 {display_code(cmd.code)}，预计 10-15 秒...")
         if cmd.kind == "B":
             return await task_service.create_b(ctx, cmd.code)
         return await task_service.create_s(ctx, cmd.code, cmd.buy_price, cmd.quantity)

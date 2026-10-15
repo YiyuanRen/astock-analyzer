@@ -30,6 +30,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("job", choices=["daily", "intraday", "stoploss"])
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--market", choices=["CN", "HK"], default=None, help="日报可选限定市场 CN 或 HK")
     ap.add_argument("--price", action="append", default=[], metavar="CODE=PX")
     ap.add_argument("--send", action="store_true")
     a = ap.parse_args()
@@ -46,7 +47,7 @@ def main():
 
     prices = {k: float(v) for k, v in (p.split("=") for p in a.price)}
     if a.job == "daily":
-        result = asyncio.run(jobs.daily_analysis(notifier, force=a.force))
+        result = asyncio.run(jobs.daily_analysis(notifier, force=a.force, market=a.market))
     elif a.job == "intraday":
         result = asyncio.run(jobs.intraday_b(notifier, force=a.force))
     else:

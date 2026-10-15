@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from app.data.market import display_code
 from app.models.database import get_conn, now_str
 
 _UPDATABLE = {
@@ -35,7 +36,8 @@ class Task:
 
     @property
     def display(self) -> str:
-        return f"{self.stock_name or self.stock_code} {self.stock_code}"
+        disp = display_code(self.stock_code)
+        return f"{self.stock_name or disp} {disp}"
 
 
 def _to_task(row: sqlite3.Row | None) -> Task | None:

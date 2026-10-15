@@ -43,10 +43,11 @@ chan:
 # --- 调度 ---
 scheduler:
   timezone: "Asia/Shanghai"
-  daily_analysis: { hour: 15, minute: 5 }       # 每交易日 15:05 日报(B+S)
-  # B 盘中跟踪: 对齐 30 分钟K线收盘后 1 分钟 (9:30-11:30, 13:00-15:00 的 K 线收盘点)
-  intraday_b_times: ["10:01", "10:31", "11:01", "11:31", "13:31", "14:01", "14:31"]
-  stop_loss_interval_min: 3                     # S任务盘中止损监控(只比价)
+  daily_analysis: { hour: 15, minute: 5 }       # A股每交易日 15:05 日报(B+S)
+  daily_analysis_hk: { hour: 16, minute: 10 }   # 港股每交易日 16:10 日报(B+S, 收市竞价后)
+  # B 盘中跟踪: 对齐 30 分钟K线收盘后 1 分钟 (A股+港股并集; 12:01/15:01/15:31 仅港股跑)
+  intraday_b_times: ["10:01", "10:31", "11:01", "11:31", "12:01", "13:31", "14:01", "14:31", "15:01", "15:31"]
+  stop_loss_interval_min: 3                     # S任务盘中止损监控(只比价, 按市场各自开市时段过滤)
   stop_alert_repeat_min: 30                     # 止损触发后重复提醒间隔
   misfire_grace_sec: 1800
 

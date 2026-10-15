@@ -172,3 +172,15 @@ def test_router_dispatch_and_notify():
     r = run(router.handle_async("S 000001 @10.45 100", PRIV, notify=notes.append))
     assert "已建立持仓跟踪" in md(r)
     assert "指令格式" in run(router.handle_async("你好", PRIV))
+
+
+def test_hk_b_and_s_via_router():
+    notes = []
+    r_b = run(router.handle_async("B 00700.HK", PRIV, notify=notes.append))
+    assert "00700.HK" in notes[0]
+    assert "16:10 推送日报" in md(r_b)
+    t_b = task_repo.get_active("oc_private", "00700")
+    assert t_b is not None and t_b.display.endswith("00700.HK")
+    r_s = run(router.handle_async("S HK700 @10.5 100", PRIV))
+    assert "每日 16:10 重算止损" in md(r_s)
+    assert "已取消" in run(router.handle_async("C 00700.HK", PRIV))

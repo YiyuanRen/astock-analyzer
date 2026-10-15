@@ -1,34 +1,36 @@
-"""飞书指令解析 (6条指令)。
+"""飞书指令解析 (6条指令, 支持沪深京 A股 + 港股)。
 
-Q 000001              即时查询
-B 000001              创建买入跟踪任务
-S 000001 [@价格] [数量] 创建卖出跟踪任务 (价格/数量可选)
-C 000001              取消任务
-L                     列出任务
-M [provider] [model]  查看/切换 LLM 模型
+Q 000001 / Q 00700.HK       即时查询
+B 000001 / B 00700          创建买入跟踪任务
+S 000001 [@价格] [数量]     创建卖出跟踪任务 (价格/数量可选)
+C 000001 / C 00700          取消任务
+L                           列出任务
+M [provider] [model]        查看/切换 LLM 模型
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
+from app.data.market import parse_code
+
 _PATTERNS = {
-    "Q": re.compile(r"^Q\s+(\d{6})$", re.I),
-    "B": re.compile(r"^B\s+(\d{6})$", re.I),
-    "S": re.compile(r"^S\s+(\d{6})(?:\s+@([\d.]+))?(?:\s+(\d+))?$", re.I),
-    "C": re.compile(r"^C\s+(\d{6})$", re.I),
+    "Q": re.compile(r"^Q\s+(\S+)$", re.I),
+    "B": re.compile(r"^B\s+(\S+)$", re.I),
+    "S": re.compile(r"^S\s+(\S+?)(?:\s+@([\d.]+))?(?:\s+(\d+))?$", re.I),
+    "C": re.compile(r"^C\s+(\S+)$", re.I),
     "L": re.compile(r"^L$", re.I),
     "M": re.compile(r"^M(?:\s+(\w+)(?:\s+(\S+))?)?$", re.I),
 }
 
 HELP_TEXT = (
-    "指令格式:\n"
-    "Q 000001            即时查询\n"
-    "B 000001            买入跟踪\n"
-    "S 000001 @10.45 100 卖出跟踪(价格/数量可选)\n"
-    "C 000001            取消任务\n"
-    "L                   列出任务\n"
-    "M [provider] [model] 查看/切换模型"
+    "指令格式（支持 A股 6位 如 000001，港股 5位 如 00700 / 00700.HK / HK00700）:\n"
+    "Q 000001 / Q 00700.HK   即时查询\n"
+    "B 000001 / B 00700      买入跟踪\n"
+    "S 000001 @10.45 100     卖出跟踪(价格/数量可选)\n"
+    "C 000001                取消任务\n"
+    "L                       列出任务\n"
+    "M [provider] [model]    查看/切换模型"
 )
 
 
@@ -61,11 +63,17 @@ def parse(text: str) -> Command:
         return Command(kind="HELP")
 
     if head in ("Q", "B", "C"):
-        return Command(kind=head, code=m.group(1))
+        parsed = parse_code(m.group(1))
+        if not parsed:
+            return Command(kind="HELP")
+        return Command(kind=head, code=parsed[0])
     if head == "S":
+        parsed = parse_code(m.group(1))
+        if not parsed:
+            return Command(kind="HELP")
         price = float(m.group(2)) if m.group(2) else None
         qty = int(m.group(3)) if m.group(3) else None
-        return Command(kind="S", code=m.group(1), buy_price=price, quantity=qty)
+        return Command(kind="S", code=parsed[0], buy_price=price, quantity=qty)
     if head == "L":
         return Command(kind="L")
     if head == "M":

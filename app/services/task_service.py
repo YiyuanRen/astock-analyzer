@@ -13,6 +13,7 @@ import sqlite3
 
 from app.config import get_config
 from app.data import fetcher
+from app.data.market import daily_report_time_str, decimals_of
 from app.engine import holding
 from app.logging_utils import get_logger
 from app.models import cache_repo, task_repo
@@ -59,8 +60,9 @@ async def create_b(ctx: dict, code: str):
             task_repo.create_task(chat_id, chat_type, by, code, res.name, "B")
         except sqlite3.IntegrityError:   # 并发重复创建
             pass
+        rpt_time = daily_report_time_str(code)
         header = ("**✅ 已创建买入跟踪**\n"
-                  "- 每个交易日 15:05 推送日报；盘中每 30 分钟跟踪，出现买点即推送\n"
+                  f"- 每个交易日 {rpt_time} 推送日报；盘中每 30 分钟跟踪，出现买点即推送\n"
                   f"- 当前结论：**{res.direction}**｜日线信号：{signal}")
     return res.to_card(header)
 
@@ -73,6 +75,7 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         return NOT_FOUND.format(code=code)
     price = await _live_price(code, res.price)
     params = _params()
+    dec = decimals_of(code)
     existing = task_repo.get_active(chat_id, code)
 
     switched = False
@@ -83,13 +86,13 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
     if existing:  # 已有 S: 更新成本/数量(未提供则沿用), 并按最新结构重置止损
         cost = buy_price if buy_price is not None else existing.buy_price
         qty = quantity if quantity is not None else existing.buy_quantity
-        lv = holding.compute_levels(res.daily, res.ml, price, cost, params)
+        lv = holding.compute_levels(res.daily, res.ml, price, cost, params, decimals=dec)
         task_repo.update_fields(existing.id, buy_price=cost, buy_quantity=qty, stop_loss=lv.stop_loss,
                                 target_price=lv.target_price, stop_alert_state=None, stop_alert_at=None)
         title, note = "🔄 已更新持仓跟踪（止损已按最新结构重置）", ""
     else:
         cost, qty = buy_price, quantity
-        lv = holding.compute_levels(res.daily, res.ml, price, cost, params)
+        lv = holding.compute_levels(res.daily, res.ml, price, cost, params, decimals=dec)
         try:
             task_repo.create_task(chat_id, chat_type, by, code, res.name, "S", cost, qty,
                                   lv.stop_loss, lv.target_price)
@@ -98,8 +101,9 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         title = "💼 已建立持仓跟踪"
         note = "已自动取消该股的买入跟踪" if switched else ""
 
+    rpt_time = daily_report_time_str(code)
     header = holding.holding_header_md(title, price, cost, qty, lv.stop_loss, lv.stop_source, lv.target_price, note)
-    header += ("\n- 监控：盘中每 3 分钟比价，触及止损立即提醒；每日 15:05 重算止损（只上移不下移）并推送日报")
+    header += (f"\n- 监控：盘中每 3 分钟比价，触及止损立即提醒；每日 {rpt_time} 重算止损（只上移不下移）并推送日报")
     return res.to_card(header)
 
 

@@ -14,6 +14,7 @@ from datetime import datetime
 
 from app.config import get_config
 from app.data import fetcher, trading_calendar
+from app.data.market import decimals_of, display_code, market_of
 from app.engine.chan_analyzer import ChanAnalyzer
 from app.engine.multi_level import multi_level_analyze
 from app.engine.report_builder import build_report
@@ -84,28 +85,30 @@ async def _compute(code: str) -> dict:
     if not quote or quote.get("price") is None:
         raise StockNotFound(code)
 
+    dec = decimals_of(code)
     data = await fetcher.fetch_all_levels(code)
 
     def run_chan():
         with _chan_lock:
-            return (_analyzer.analyze(data["daily"], "daily"),
-                    _analyzer.analyze(data["m30"], "30m"),
-                    _analyzer.analyze(data["m5"], "5m"))
+            return (_analyzer.analyze(data["daily"], "daily", decimals=dec),
+                    _analyzer.analyze(data["m30"], "30m", decimals=dec),
+                    _analyzer.analyze(data["m5"], "5m", decimals=dec))
 
     daily, m30, m5 = await asyncio.to_thread(run_chan)
-    ml = multi_level_analyze(daily, m30, m5, quote.get("price"))
+    ml = multi_level_analyze(daily, m30, m5, quote.get("price"), decimals=dec)
     report = build_report(quote, daily, m30, m5, ml, data["daily"])
     markdown = await generate_report(report)
 
-    name = quote.get("name") or code
+    disp = display_code(code)
+    name = quote.get("name") or disp
     template = {"买入": "red", "卖出": "green"}.get(ml.get("operation_direction"), "blue")
     return {"code": code, "name": name, "quote": quote, "daily": daily, "m30": m30, "m5": m5,
             "ml": ml, "report": report, "markdown": markdown, "template": template,
-            "title": f"📊 {name} {code}"}
+            "title": f"📊 {name} {disp}"}
 
 
-def _cache_valid(entry: dict, current: datetime) -> bool:
-    if entry["session_key"] != trading_calendar.session_key(current):
+def _cache_valid(entry: dict, current: datetime, market: str = "CN") -> bool:
+    if entry["session_key"] != trading_calendar.session_key(current, market=market):
         return False
     if entry["session_key"].endswith("-close"):
         return True                         # 数据静止, 直到下次开盘
@@ -125,15 +128,16 @@ async def analyze_stock(code: str, *, force: bool = False, fresh_within_sec: int
     current = current or now()
     if current.tzinfo is None:
         current = current.replace(tzinfo=TZ)
+    mkt = market_of(code)
     cached = cache_repo.get(code)
     if cached:
         age = (current - datetime.fromisoformat(cached["analyzed_at"])).total_seconds()
-        if (not force and _cache_valid(cached, current)) or (force and 0 <= age <= fresh_within_sec):
+        if (not force and _cache_valid(cached, current, market=mkt)) or (force and 0 <= age <= fresh_within_sec):
             p = cached["payload"]
             return AnalysisResult(code, p.get("name") or code, p, cached["analyzed_at"], True)
 
     logger.info("分析 %s (force=%s)", code, force)
     payload = await _compute(code)
     analyzed_at = current.astimezone(TZ).isoformat(timespec="seconds")
-    cache_repo.put(code, payload, trading_calendar.session_key(current), analyzed_at)
+    cache_repo.put(code, payload, trading_calendar.session_key(current, market=mkt), analyzed_at)
     return AnalysisResult(code, payload["name"], payload, analyzed_at, False)

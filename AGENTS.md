@@ -1,6 +1,6 @@
 # AGENTS.md — 给 AI 协作者的项目速查
 
-A股缠论分析系统。详细进度与上下文见 `docs/05-dev-progress.md`(接续工作先读)。
+A股 + 港股缠论分析系统。详细进度与上下文见 `docs/05-dev-progress.md`(接续工作先读)。
 
 ## 环境
 

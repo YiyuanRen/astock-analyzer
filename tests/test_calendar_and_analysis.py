@@ -60,6 +60,22 @@ def test_provider_failure_falls_back_to_weekday():
     assert not cal.is_trading_day(date(2026, 10, 10), dt(2026, 10, 10, 10))  # 周六
 
 
+def test_hk_separate_calendar_and_hours():
+    # 国庆 10/5: A股休市, 港股开市; 港股 11:45、15:30 开市, 12:30 午休, 16:05 已收盘
+    hk_dates = DATES | {date(2026, 10, 2), date(2026, 10, 5), date(2026, 10, 6), date(2026, 10, 7)}
+    cal.set_dates_provider(lambda m="CN": hk_dates if m == "HK" else set(DATES))
+
+    now_oct5 = dt(2026, 10, 5, 11, 45)
+    assert not cal.is_market_open(now_oct5, market="CN")
+    assert cal.is_market_open(now_oct5, market="HK")       # 11:45 港股仍在早盘(9:30-12:00)
+
+    assert not cal.is_trading_time(dt(2026, 10, 8, 15, 30), market="CN")
+    assert cal.is_trading_time(dt(2026, 10, 8, 15, 30), market="HK")        # 港股 15:00-16:00 尾盘
+    assert not cal.is_trading_time(dt(2026, 10, 8, 12, 30), market="HK")    # 港股 12:00-13:00 午休
+    assert cal.session_key(dt(2026, 10, 8, 15, 30), market="HK") == "2026-10-08-open"
+    assert cal.session_key(dt(2026, 10, 8, 16, 5), market="HK") == "2026-10-08-close"
+
+
 # ---------------- 分析服务缓存 ----------------
 @pytest.fixture
 def counting_compute(monkeypatch, tmp_db):

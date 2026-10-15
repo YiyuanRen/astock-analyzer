@@ -8,6 +8,7 @@ from datetime import datetime
 import pandas as pd
 
 from app.config import get_config
+from app.data.market import currency_of, display_code, market_label
 
 
 def _volume_status(daily_df: pd.DataFrame, lookback: int = 5) -> str:
@@ -49,7 +50,9 @@ def build_report(quote: dict, daily: dict, m30: dict, m5: dict, ml: dict,
     report = {
         "basic": {
             "name": name,
-            "code": code,
+            "code": display_code(code) if code != "-" else "-",
+            "market": market_label(code) if code != "-" else "A股",
+            "currency": currency_of(code) if code != "-" else "CNY",
             "price": price,
             "change_pct": pct,
             "period": "多级别（日线/30分/5分）",

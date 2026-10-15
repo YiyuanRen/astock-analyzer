@@ -59,33 +59,35 @@ def _resistances(daily: dict, ml: dict | None) -> list[float]:
     return cands
 
 
-def structural_stop(daily: dict, price: float, params: dict | None = None) -> tuple[float, bool]:
+def structural_stop(daily: dict, price: float, params: dict | None = None,
+                    decimals: int = 2) -> tuple[float, bool]:
     """返回 (结构止损价, 是否使用了兜底)。"""
     p = _p(params)
     ok = [c for c in _supports(daily) if c <= price * (1 - p["min_stop_gap"])]
     if ok:
-        return round(max(ok) * (1 - p["structural_buffer"]), 2), False
-    return round(price * (1 - p["fallback_stop_pct"]), 2), True
+        return round(max(ok) * (1 - p["structural_buffer"]), decimals), False
+    return round(price * (1 - p["fallback_stop_pct"]), decimals), True
 
 
-def compute_target(daily: dict, ml: dict | None, price: float, params: dict | None = None) -> float:
+def compute_target(daily: dict, ml: dict | None, price: float, params: dict | None = None,
+                   decimals: int = 2) -> float:
     p = _p(params)
     above = [c for c in _resistances(daily, ml) if c >= price * 1.005]
     if above:
-        return round(min(above), 2)
-    return round(price * (1 + p["fallback_target_pct"]), 2)
+        return round(min(above), decimals)
+    return round(price * (1 + p["fallback_target_pct"]), decimals)
 
 
 def compute_levels(daily: dict, ml: dict | None, price: float, cost: float | None = None,
-                   params: dict | None = None) -> Levels:
+                   params: dict | None = None, decimals: int = 2) -> Levels:
     p = _p(params)
-    s_stop, fallback = structural_stop(daily, price, p)
-    personal = round(cost * (1 - p["cost_stop_pct"]), 2) if cost else None
+    s_stop, fallback = structural_stop(daily, price, p, decimals=decimals)
+    personal = round(cost * (1 - p["cost_stop_pct"]), decimals) if cost else None
     if personal is not None and personal > s_stop:
         stop, source = personal, "成本保护"
     else:
         stop, source = s_stop, ("兜底(-%d%%)" % round(p["fallback_stop_pct"] * 100) if fallback else "结构止损")
-    return Levels(stop, compute_target(daily, ml, price, p), source, s_stop, personal)
+    return Levels(stop, compute_target(daily, ml, price, p, decimals=decimals), source, s_stop, personal)
 
 
 def ratchet(old_stop: float | None, new_stop: float) -> tuple[float, bool]:

@@ -83,3 +83,12 @@ def test_header_full_and_warning():
 def test_header_without_cost():
     md = h.holding_header_md("x", 11.57, None, None, 10.5, "结构止损", 12.0)
     assert "未提供成本价" in md
+
+
+def test_hk_three_decimals_for_penny_stock():
+    daily_penny = {"zhongshu_range": [0.180, 0.210], "seg_low": 0.185, "seg_high": 0.260}
+    lv = h.compute_levels(daily_penny, None, 0.205, cost=0.200, decimals=3)
+    # 0.185 <= 0.205*0.98(0.2009) -> 结构止损 round(0.185*0.985, 3)=0.182; 成本保护 round(0.2*0.92,3)=0.184 -> 0.184
+    assert lv.structural_stop == 0.182
+    assert lv.personal_stop == 0.184
+    assert lv.stop_loss == 0.184 and lv.target_price == 0.21

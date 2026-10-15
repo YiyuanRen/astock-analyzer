@@ -70,7 +70,7 @@ class ChanAnalyzer:
             "print_warning": False,
         }
 
-    def analyze(self, df: pd.DataFrame, level: str = "daily") -> dict:
+    def analyze(self, df: pd.DataFrame, level: str = "daily", decimals: int = 2) -> dict:
         if df is None or len(df) < self.min_klines:
             return {"error": "数据不足，建议观望", "level": level,
                     "level_cn": LEVEL_CN.get(level, level)}
@@ -105,8 +105,8 @@ class ChanAnalyzer:
         except Exception:
             result["bi_bars"] = None
         try:
-            result["bi_high"] = round(float(last_bi._high()), 2)
-            result["bi_low"] = round(float(last_bi._low()), 2)
+            result["bi_high"] = round(float(last_bi._high()), decimals)
+            result["bi_low"] = round(float(last_bi._low()), decimals)
         except Exception:
             result["bi_high"] = result["bi_low"] = None
 
@@ -115,8 +115,8 @@ class ChanAnalyzer:
             last_seg = kl.seg_list[-1]
             result["segment_direction"] = "上升" if last_seg.dir == BI_DIR.UP else "下降"
             try:
-                result["seg_high"] = round(float(last_seg._high()), 2)
-                result["seg_low"] = round(float(last_seg._low()), 2)
+                result["seg_high"] = round(float(last_seg._high()), decimals)
+                result["seg_low"] = round(float(last_seg._low()), decimals)
             except Exception:
                 result["seg_high"] = result["seg_low"] = None
         else:
@@ -127,7 +127,7 @@ class ChanAnalyzer:
         if len(kl.zs_list) > 0:
             zs = kl.zs_list[-1]
             zlow, zhigh = float(zs.low), float(zs.high)
-            result["zhongshu_range"] = (round(zlow, 2), round(zhigh, 2))
+            result["zhongshu_range"] = (round(zlow, decimals), round(zhigh, decimals))
             if last_close > zhigh:
                 result["price_vs_zhongshu"] = "上方"
             elif last_close < zlow:
@@ -147,7 +147,7 @@ class ChanAnalyzer:
                 "is_buy": bool(latest.is_buy),
                 "types": [t.value for t in latest.type],
                 "bi_idx": latest.bi.idx,
-                "price": round(float(latest.bi.get_end_val()), 2),
+                "price": round(float(latest.bi.get_end_val()), decimals),
             }
             # 是否为当前信号: 买卖点所在笔为最后一笔(或倒数第二笔且未完成)
             is_current = latest.bi.idx >= (len(kl.bi_list) - 1)

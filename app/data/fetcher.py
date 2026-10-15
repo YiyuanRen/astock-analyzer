@@ -17,6 +17,7 @@ import pandas as pd
 from curl_cffi import requests as cr
 
 from app.config import get_config
+from app.data.market import secid_of
 from app.logging_utils import get_logger
 
 logger = get_logger("data.fetcher")
@@ -32,9 +33,8 @@ _KLT_DAILY = 101
 
 
 def _secid(code: str) -> str:
-    """6位代码 -> eastmoney secid (market.code)。5/6/9 开头为上交所(1, 含沪市ETF), 其余深/北(0)。"""
-    market = 1 if code[0] in ("5", "6", "9") else 0
-    return f"{market}.{code}"
+    """兼容旧调用: 规范化代码 -> eastmoney secid (A股 0/1.xxxxxx, 港股 116.xxxxx)。"""
+    return secid_of(code)
 
 
 def _cr_get(url: str, params: dict, timeout: int, retries: int = 3):
@@ -104,10 +104,14 @@ def fetch_5min(code: str, months: int = 1) -> pd.DataFrame:
     return _get_klines(code, 5, int(months * 31), fqt=1)
 
 
-def fetch_index_trade_dates(days: int = 30) -> set[date]:
-    """上证指数(1.000001)最近 N 天的日K日期集合 —— 数据驱动的交易日历(自动跳过节假日)。"""
+_INDEX_SECID = {"CN": "1.000001", "HK": "100.HSI"}
+
+
+def fetch_index_trade_dates(days: int = 30, market: str = "CN") -> set[date]:
+    """基准指数(CN=上证 1.000001, HK=恒指 100.HSI)最近 N 天的日K日期集合 —— 数据驱动的交易日历。"""
     beg = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-    params = {"secid": "1.000001", "klt": _KLT_DAILY, "fqt": 0, "beg": beg, "end": "20500000",
+    secid = _INDEX_SECID.get(market, "1.000001")
+    params = {"secid": secid, "klt": _KLT_DAILY, "fqt": 0, "beg": beg, "end": "20500000",
               "fields1": "f1", "fields2": "f51"}
     klines = (_cr_get(_KLINE_URL, params, timeout=15).json().get("data") or {}).get("klines") or []
     return {date.fromisoformat(k[:10]) for k in klines}

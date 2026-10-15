@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -275,20 +275,63 @@ def test_stop_loss_ignores_b_tasks_and_tasks_without_stop():
     assert s["checked"] == 0 and n.sent == []
 
 
-# ======================= 调度器 =======================
+# ======================= 调度器 & 港股跨市场分流 =======================
 def test_build_scheduler_registers_expected_jobs():
     sched = jobs.build_scheduler(RecordingNotifier())
     ids = {j.id for j in sched.get_jobs()}
-    assert "daily_analysis" in ids and "stop_loss" in ids
+    assert "daily_analysis" in ids and "daily_analysis_hk" in ids and "stop_loss" in ids
     assert {i for i in ids if i.startswith("intraday_b_")} == {
-        f"intraday_b_{t}" for t in ["10:01", "10:31", "11:01", "11:31", "13:31", "14:01", "14:31"]}
+        f"intraday_b_{t}" for t in [
+            "10:01", "10:31", "11:01", "11:31", "12:01",
+            "13:31", "14:01", "14:31", "15:01", "15:31",
+        ]}
 
 
 def test_cron_fire_times_weekdays_only():
     sched = jobs.build_scheduler(RecordingNotifier())
     daily = next(j for j in sched.get_jobs() if j.id == "daily_analysis")
+    daily_hk = next(j for j in sched.get_jobs() if j.id == "daily_analysis_hk")
     stop = next(j for j in sched.get_jobs() if j.id == "stop_loss")
     sat = dt(2026, 10, 10, 9, 0)
     assert daily.trigger.get_next_fire_time(None, sat) == dt(2026, 10, 12, 15, 5)       # 跳到周一
+    assert daily_hk.trigger.get_next_fire_time(None, sat) == dt(2026, 10, 12, 16, 10)
     assert stop.trigger.get_next_fire_time(None, dt(2026, 10, 8, 9, 29)) == dt(2026, 10, 8, 9, 30)
-    assert stop.trigger.get_next_fire_time(None, dt(2026, 10, 8, 11, 58)) == dt(2026, 10, 8, 13, 0)  # 午休后
+    assert stop.trigger.get_next_fire_time(None, dt(2026, 10, 8, 12, 58)) == dt(2026, 10, 8, 13, 0)
+
+
+def test_hk_and_cn_market_isolation_across_jobs(analysis):
+    # 模拟国庆 10/5: A股休市, 港股开市
+    hk_dates = DATES | {date(2026, 10, 5)}
+    cal.set_dates_provider(lambda m="CN": hk_dates if m == "HK" else set(DATES))
+
+    mk(PRIV, "000001", "B")
+    mk(PRIV, "00700", "B")
+    mk(PRIV, "600519", "S", stop_loss=1300.0)
+    mk(PRIV, "09988", "S", stop_loss=100.0)
+    analysis.results["000001"] = buy_result("买入")
+    analysis.results["00700"] = make_result("00700", "腾讯控股", 417.8, "买入", "二类买点")
+
+    # 1) 10/5 日报: CN 跳过, HK 正常推 00700 和 09988
+    n = RecordingNotifier()
+    s_cn = run(jobs.daily_analysis(n, current=dt(2026, 10, 5, 15, 5), market="CN"))
+    assert s_cn["skipped"] == "非交易日" and n.sent == []
+    s_hk = run(jobs.daily_analysis(n, current=dt(2026, 10, 5, 16, 10), market="HK"))
+    assert s_hk["skipped"] is None and s_hk["pushed"] == 2
+    assert {m["title"] for m in n.sent} == {"📊 腾讯控股 00700", "📊 平安银行 09988"}
+
+    # 2) 10/8(两市均开市) 12:01 与 15:31: B 盘中只跑港股 00700, 不跑 A 股 000001
+    t_hk = task_repo.get_active(PRIV, "00700")
+    task_repo.update_fields(t_hk.id, last_signal_key=None)
+    n2 = RecordingNotifier()
+    analysis.calls.clear()
+    s_ib = run(jobs.intraday_b(n2, current=dt(2026, 10, 8, 15, 31)))
+    assert s_ib["stocks"] == 1 and s_ib["pushed"] == 1
+    assert [c for c, _ in analysis.calls] == ["00700"]
+    assert "以 16:10 日线确认为准" in n2.sent[0]["text"]
+
+    # 3) 10/8 15:30: S 止损监控只查港股 09988, 不查已收盘的 A 股 600519
+    n3 = RecordingNotifier()
+    s_sl = jobs.stop_loss_check(n3, current=dt(2026, 10, 8, 15, 30),
+                                prices={"600519": 1200.0, "09988": 95.0})
+    assert s_sl["checked"] == 1 and s_sl["alerted"] == 1
+    assert len(n3.sent) == 1 and "09988.HK" in n3.sent[0]["title"]
