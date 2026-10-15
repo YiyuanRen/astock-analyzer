@@ -13,6 +13,9 @@ from app.data.market import decimals_of, display_code, market_of, parse_code
     # 港股与带市场前后缀写法
     ("Q 00700", "Q", "00700"),
     ("Q 00700.HK", "Q", "00700"),
+    ("B [01810.HK](http://01810.hk/)", "B", "01810"),
+    ("S [01810.HK](http://01810.hk/) @25.5 200", "S", "01810"),
+    ("Q http://01810.hk/", "Q", "01810"),
     ("Q hk00700", "Q", "00700"),
     ("B HK700", "B", "00700"),
     ("C 700.hk", "C", "00700"),

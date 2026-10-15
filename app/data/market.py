@@ -27,7 +27,9 @@ def parse_code(raw: str | None) -> tuple[str, str] | None:
     """解析用户输入的代码, 返回 (规范化代码, 市场 'CN'|'HK'); 非法返回 None。"""
     if not raw:
         return None
-    s = raw.strip()
+    # 兼容飞书/客户端把 01810.HK 自动识别为超链接或 URL (如 [01810.HK](http://01810.hk/) 或 http://01810.hk/)
+    s = re.sub(r"^\[([^\[\]]+)\]\([^()\s]+\)$", r"\1", raw.strip())
+    s = re.sub(r"^https?://", "", s, flags=re.I).rstrip("/")
     m = _CN_PURE.match(s)
     if m:
         return m.group(1), "CN"

@@ -48,8 +48,10 @@ def parse(text: str) -> Command:
     """解析一条指令文本。无法识别返回 kind='HELP'。"""
     if text is None:
         return Command(kind="HELP")
-    # 归一化: 去首尾空白, 全角空格/@ 转半角, 合并多空格
-    s = text.strip().replace("\u3000", " ").replace("＠", "@")
+    # 归一化: 去首尾空白, 剥离飞书把 01810.HK 自动转成的 Markdown 链接 [01810.HK](http://01810.hk/),
+    # 全角空格/@ 转半角, 合并多空格
+    s = re.sub(r"\[([^\[\]]+)\]\([^()\s]+\)", r"\1", text.strip())
+    s = s.replace("\u3000", " ").replace("＠", "@")
     s = re.sub(r"\s+", " ", s)
     if not s:
         return Command(kind="HELP")
