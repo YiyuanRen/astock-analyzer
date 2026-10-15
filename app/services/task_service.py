@@ -11,9 +11,10 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
+from app.bot.card_builder import build_task_list_card
 from app.config import get_config
 from app.data import fetcher
-from app.data.market import daily_report_time_str, decimals_of
+from app.data.market import daily_report_time_str, decimals_of, display_code
 from app.engine import holding
 from app.logging_utils import get_logger
 from app.models import cache_repo, task_repo
@@ -101,10 +102,16 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         title = "💼 已建立持仓跟踪"
         note = "已自动取消该股的买入跟踪" if switched else ""
 
-    rpt_time = daily_report_time_str(code)
-    header = holding.holding_header_md(title, price, cost, qty, lv.stop_loss, lv.stop_source, lv.target_price, note)
-    header += (f"\n- 监控：盘中每 3 分钟比价，触及止损立即提醒；每日 {rpt_time} 重算止损（只上移不下移）并推送日报")
-    return res.to_card(header)
+    return res.to_holding_card(
+        banner_title=title,
+        price=price,
+        cost=cost,
+        qty=qty,
+        stop=lv.stop_loss,
+        stop_source=lv.stop_source,
+        target=lv.target_price,
+        notes=[note] if note else None,
+    )
 
 
 def cancel(ctx: dict, code: str) -> str:
@@ -115,14 +122,16 @@ def cancel(ctx: dict, code: str) -> str:
     return f"✅ 已取消 {t.display} 的{TYPE_CN[t.task_type]}任务。"
 
 
-def _last_signal(code: str) -> str:
+def _cached_meta(code: str) -> tuple[str, float | None, float | None]:
     cached = cache_repo.get(code)
     if not cached:
-        return "尚无分析"
+        return "尚无分析", None, None
     p = cached["payload"]
     bsp = (p.get("daily") or {}).get("buy_sell_point") or "无信号"
     hhmm = cached["analyzed_at"][11:16]
-    return f"{(p.get('ml') or {}).get('operation_direction', '观望')}｜{bsp}（{hhmm}）"
+    ml = p.get("ml") or {}
+    sig = f"{ml.get('operation_direction', '观望')}｜{bsp}（{hhmm}）"
+    return sig, ml.get("support"), ml.get("resistance")
 
 
 async def _quotes(codes: list[str]) -> dict[str, dict]:
@@ -147,24 +156,53 @@ async def list_tasks(ctx: dict):
         return f"{scope}暂无活跃任务。发送 B 000001 创建买入跟踪，或 S 000001 @成本 数量 创建持仓跟踪。"
 
     quotes = await _quotes(sorted({t.stock_code for t in tasks}))
-    lines: list[str] = []
+    items: list[dict] = []
     for t in tasks:
         q = quotes.get(t.stock_code) or {}
         price, pct = q.get("price"), q.get("change_pct")
         px = f"{price:g}（{pct:+.2f}%）" if price is not None and pct is not None else "—"
+        sig, sup, res = _cached_meta(t.stock_code)
+        disp = display_code(t.stock_code)
+        name = t.stock_name or q.get("name") or disp
+
+        pnl_pct = None
+        dist = None
         if t.task_type == "B":
-            lines.append(f"**{t.display}**｜B 买入跟踪\n- 现价：{px}\n- 最近结论：{_last_signal(t.stock_code)}")
+            legacy_block = f"**{t.display}**｜B 买入跟踪\n- 现价：{px}\n- 最近结论：{sig}"
+            urgent = ("买点" in sig)
         else:
             row = [f"**{t.display}**｜S 持仓跟踪", f"- 现价：{px}"]
             if t.buy_price:
                 d = holding.pnl(t.buy_price, t.buy_quantity, price) if price else {}
-                pnl_txt = f"｜浮盈 {d['pnl_pct']:+.2f}%" if d.get("pnl_pct") is not None else ""
+                pnl_pct = d.get("pnl_pct")
+                pnl_txt = f"｜浮盈 {pnl_pct:+.2f}%" if pnl_pct is not None else ""
                 qty_txt = f" × {t.buy_quantity}" if t.buy_quantity else ""
                 row.append(f"- 成本：{t.buy_price:g}{qty_txt}{pnl_txt}")
             if t.stop_loss and price:
-                row.append(f"- 止损：{t.stop_loss:g}（距现价 {holding.dist_to_stop_pct(price, t.stop_loss):+.2f}%）"
+                dist = holding.dist_to_stop_pct(price, t.stop_loss)
+                row.append(f"- 止损：{t.stop_loss:g}（距现价 {dist:+.2f}%）"
                            f"｜目标：{t.target_price:g}" if t.target_price else f"- 止损：{t.stop_loss:g}")
-            row.append(f"- 最近结论：{_last_signal(t.stock_code)}")
-            lines.append("\n".join(row))
-    return {"card": {"title": f"📋 任务列表（{scope}，共 {len(tasks)} 个）",
-                     "markdown": "\n\n".join(lines), "template": "blue"}}
+            row.append(f"- 最近结论：{sig}")
+            legacy_block = "\n".join(row)
+            urgent = (dist is not None and dist <= 3.0) or ("卖点" in sig)
+
+        items.append({
+            "display": t.display,
+            "name": name,
+            "disp_code": disp,
+            "task_type": t.task_type,
+            "price": price,
+            "change_pct": pct,
+            "buy_price": t.buy_price,
+            "buy_quantity": t.buy_quantity,
+            "pnl_pct": pnl_pct,
+            "stop_loss": t.stop_loss,
+            "target_price": t.target_price,
+            "dist_to_stop": dist,
+            "support": sup,
+            "resistance": res,
+            "last_signal": sig,
+            "urgent": urgent,
+            "legacy_block": legacy_block,
+        })
+    return build_task_list_card(scope, items)

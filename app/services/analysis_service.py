@@ -12,6 +12,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.bot.card_builder import build_analysis_card, build_holding_card
 from app.config import get_config
 from app.data import fetcher, trading_calendar
 from app.data.market import decimals_of, display_code, market_of
@@ -71,13 +72,41 @@ class AnalysisResult:
 
     def to_card(self, header_md: str = "", template: str | None = None,
                 show_cache_note: bool = True) -> dict:
-        """生成飞书卡片回复; header_md 为代码确定性生成的头部区块(持仓/任务状态等)。"""
-        body = (header_md + "\n\n---\n\n" if header_md else "") + self.markdown
+        """生成飞书 Schema 2.0 分析主卡片(A1 方案)。"""
+        cached_hhmm = None
         if self.from_cache and show_cache_note:
-            hhmm = datetime.fromisoformat(self.analyzed_at).strftime("%H:%M")
-            body += f"\n\n_(缓存于 {hhmm}，非盘中实时)_"
-        return {"card": {"title": self.payload["title"], "markdown": body,
-                         "template": template or self.payload["template"]}}
+            cached_hhmm = datetime.fromisoformat(self.analyzed_at).strftime("%H:%M")
+        return build_analysis_card(
+            self.payload, header_md=header_md, template=template, cached_hhmm=cached_hhmm
+        )
+
+    def to_holding_card(
+        self,
+        *,
+        banner_title: str,
+        price: float,
+        cost: float | None,
+        qty: int | None,
+        stop: float,
+        stop_source: str,
+        target: float,
+        notes: list[str] | None = None,
+        sell_signal: str | None = None,
+    ) -> dict:
+        """生成飞书 Schema 2.0 持仓作战室卡片(B1 方案)。"""
+        return build_holding_card(
+            self.payload,
+            banner_title=banner_title,
+            price=price,
+            cost=cost,
+            qty=qty,
+            stop=stop,
+            stop_source=stop_source,
+            target=target,
+            notes=notes,
+            sell_signal=sell_signal,
+            code=self.code,
+        )
 
 
 async def _compute(code: str) -> dict:

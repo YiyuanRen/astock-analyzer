@@ -13,7 +13,8 @@ from typing import Protocol
 class Notifier(Protocol):
     def send_text(self, chat_id: str, text: str) -> bool: ...
 
-    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue") -> bool: ...
+    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue",
+                  raw_card: dict | None = None) -> bool: ...
 
 
 class ConsoleNotifier:
@@ -21,7 +22,8 @@ class ConsoleNotifier:
         print(f"\n[推送 → {chat_id}] {text}\n")
         return True
 
-    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue") -> bool:
+    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue",
+                  raw_card: dict | None = None) -> bool:
         print(f"\n[推送 → {chat_id}] 卡片「{title}」template={template}\n{markdown}\n")
         return True
 
@@ -32,12 +34,14 @@ class RecordingNotifier:
         self.fail = fail
 
     def send_text(self, chat_id: str, text: str) -> bool:
-        self.sent.append({"chat_id": chat_id, "kind": "text", "title": None, "text": text, "template": None})
+        self.sent.append({"chat_id": chat_id, "kind": "text", "title": None, "text": text,
+                          "template": None, "raw_card": None})
         return not self.fail
 
-    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue") -> bool:
+    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue",
+                  raw_card: dict | None = None) -> bool:
         self.sent.append({"chat_id": chat_id, "kind": "card", "title": title, "text": markdown,
-                          "template": template})
+                          "template": template, "raw_card": raw_card})
         return not self.fail
 
     def to(self, chat_id: str) -> list[dict]:

@@ -16,6 +16,7 @@ from datetime import datetime, time
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.bot.card_builder import build_stop_alert_card
 from app.config import get_config
 from app.data import fetcher
 from app.data import trading_calendar as cal
@@ -46,8 +47,11 @@ def _group_by_code(tasks) -> dict[str, list]:
     return g
 
 
-def _push(notifier, chat_id: str, title: str, markdown: str, template: str) -> bool:
+def _push(notifier, chat_id: str, title: str, markdown: str, template: str,
+          raw_card: dict | None = None) -> bool:
     try:
+        ok = notifier.send_card(chat_id, title, markdown, template, raw_card=raw_card)
+    except TypeError:
         ok = notifier.send_card(chat_id, title, markdown, template)
     except Exception:  # noqa: BLE001
         logger.exception("推送异常 chat=%s title=%s", chat_id, title)
@@ -130,10 +134,11 @@ async def daily_analysis(notifier, *, current: datetime | None = None, force: bo
             try:
                 if t.task_type == "B":
                     header, template = _daily_b(t, res)
+                    card = res.to_card(header, template, show_cache_note=False)["card"]
                 else:
-                    header, template = _daily_s(t, res)
-                card = res.to_card(header, template, show_cache_note=False)["card"]
-                ok = _push(notifier, t.chat_id, card["title"], card["markdown"], card["template"])
+                    card = _daily_s_card(t, res)["card"]
+                ok = _push(notifier, t.chat_id, card["title"], card["markdown"],
+                           card["template"], raw_card=card.get("raw_card"))
             except Exception:  # noqa: BLE001
                 logger.exception("日报: 处理任务 %s/%s 失败", t.chat_id, code)
                 ok = False
@@ -150,7 +155,7 @@ def _daily_b(t, res: AnalysisResult) -> tuple[str, str]:
     return header, res.payload["template"]
 
 
-def _daily_s(t, res: AnalysisResult) -> tuple[str, str]:
+def _daily_s_card(t, res: AnalysisResult) -> dict:
     price = res.price
     dec = decimals_of(t.stock_code)
     lv = holding.compute_levels(res.daily, res.ml, price, t.buy_price, _params(), decimals=dec)
@@ -164,9 +169,17 @@ def _daily_s(t, res: AnalysisResult) -> tuple[str, str]:
     sell = _sell_signal(res)
     if sell:
         notes.append(f"⚠️ 日线出现**{sell}**，请关注减仓")
-    header = holding.holding_header_md("📅 收盘日报 · 持仓跟踪", price, t.buy_price, t.buy_quantity,
-                                       stop, source, lv.target_price, "\n- ".join(notes))
-    return header, ("green" if sell else res.payload["template"])
+    return res.to_holding_card(
+        banner_title="📅 收盘日报 · 持仓跟踪",
+        price=price,
+        cost=t.buy_price,
+        qty=t.buy_quantity,
+        stop=stop,
+        stop_source=source,
+        target=lv.target_price,
+        notes=notes,
+        sell_signal=sell,
+    )
 
 
 # ---------------- B 盘中跟踪 ----------------
@@ -203,7 +216,8 @@ async def intraday_b(notifier, *, current: datetime | None = None, force: bool =
                       f"- 日线：**{bsp}**｜30分钟共振：{'✅ 已确认' if confirmed else '⏳ 尚未确认，继续观察'}\n"
                       f"- ⚠️ 盘中日线尚未收盘，信号可能变化，以 {rpt_time} 日线确认为准")
             card = res.to_card(header, "red" if confirmed else "orange", show_cache_note=False)["card"]
-            if _push(notifier, t.chat_id, card["title"], card["markdown"], card["template"]):
+            if _push(notifier, t.chat_id, card["title"], card["markdown"],
+                     card["template"], raw_card=card.get("raw_card")):
                 task_repo.update_fields(t.id, last_signal_key=key, last_signal_at=now_str())
                 stats["pushed"] += 1
     logger.info("B 盘中跟踪完成: %s", stats)
@@ -252,30 +266,14 @@ def stop_loss_check(notifier, *, current: datetime | None = None, force: bool = 
         if not (first_today or due):
             continue
 
-        title = f"🚨 止损触发 {t.display}" if first_today else f"⏰ 止损提醒（持续）{t.display}"
-        if _push(notifier, t.chat_id, title, _stop_alert_md(t, price, first_today), "orange"):
+        card = build_stop_alert_card(t, price, first_today, get_config().risk_disclaimer)["card"]
+        if _push(notifier, t.chat_id, card["title"], card["markdown"],
+                 card["template"], raw_card=card.get("raw_card")):
             task_repo.update_fields(t.id, stop_alert_state="alerted", stop_alert_at=current.isoformat(timespec="seconds"))
             stats["alerted" if first_today else "reminded"] += 1
     if stats["alerted"] or stats["reminded"] or stats["recovered"]:
         logger.info("止损监控: %s", stats)
     return stats
-
-
-def _stop_alert_md(t, price: float, first: bool) -> str:
-    dist = holding.dist_to_stop_pct(price, t.stop_loss)
-    lines = [f"**现价 {price:g} ≤ 止损位 {t.stop_loss:g}**（低于止损位 {abs(dist):.2f}%）"
-             if first else f"**仍低于止损位**：现价 {price:g}｜止损位 {t.stop_loss:g}（{abs(dist):.2f}%）"]
-    if t.buy_price:
-        d = holding.pnl(t.buy_price, t.buy_quantity, price)
-        row = f"- 成本：{t.buy_price:g}" + (f" × {t.buy_quantity} 股" if t.buy_quantity else "") + f"｜浮盈：**{d['pnl_pct']:+.2f}%**"
-        if d["pnl_amount"] is not None:
-            row += f"（{d['pnl_amount']:+,.2f}）"
-        lines.append(row)
-    if t.target_price:
-        lines.append(f"- 目标位：{t.target_price:g}")
-    lines.append("- 这是价格提醒，不是操作指令；请结合自身情况决策。")
-    lines.append(f"\n{get_config().risk_disclaimer}")
-    return "\n".join(lines)
 
 
 # ---------------- 调度器 ----------------

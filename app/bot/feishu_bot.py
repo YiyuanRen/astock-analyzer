@@ -41,12 +41,16 @@ def _default_handler(text: str, ctx: dict, notify: Notify) -> str:
     return f"收到: {text}" if text else "收到(非文本消息)"
 
 
-def _build_card(title: str, markdown: str, template: str = "blue") -> dict:
+def _build_card(title: str, markdown: str, template: str = "blue",
+                raw_card: dict | None = None) -> dict:
+    if raw_card:
+        return raw_card
     return {
-        "config": {"wide_screen_mode": True},
+        "schema": "2.0",
+        "config": {"wide_screen_mode": True, "update_multi": True},
         "header": {"template": template,
                    "title": {"tag": "plain_text", "content": title}},
-        "elements": [{"tag": "markdown", "content": markdown}],
+        "body": {"elements": [{"tag": "markdown", "content": markdown}]},
     }
 
 
@@ -147,7 +151,7 @@ class FeishuBot:
         if isinstance(reply, dict) and reply.get("card"):
             c = reply["card"]
             self.reply_card(message_id, c.get("title", ""), c.get("markdown", ""),
-                            c.get("template", "blue"))
+                            c.get("template", "blue"), raw_card=c.get("raw_card"))
         else:
             self.reply_text(message_id, str(reply))
 
@@ -155,8 +159,10 @@ class FeishuBot:
     def reply_text(self, message_id: str, text: str) -> None:
         self._reply(message_id, "text", json.dumps({"text": text}))
 
-    def reply_card(self, message_id: str, title: str, markdown: str, template: str = "blue") -> None:
-        self._reply(message_id, "interactive", json.dumps(_build_card(title, markdown, template)))
+    def reply_card(self, message_id: str, title: str, markdown: str, template: str = "blue",
+                   raw_card: dict | None = None) -> None:
+        card = _build_card(title, markdown, template, raw_card=raw_card)
+        self._reply(message_id, "interactive", json.dumps(card, ensure_ascii=False))
 
     def _reply(self, message_id: str, msg_type: str, content: str) -> None:
         req = (
@@ -174,8 +180,10 @@ class FeishuBot:
     def send_text(self, chat_id: str, text: str) -> bool:
         return self._create(chat_id, "text", json.dumps({"text": text}))
 
-    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue") -> bool:
-        return self._create(chat_id, "interactive", json.dumps(_build_card(title, markdown, template)))
+    def send_card(self, chat_id: str, title: str, markdown: str, template: str = "blue",
+                  raw_card: dict | None = None) -> bool:
+        card = _build_card(title, markdown, template, raw_card=raw_card)
+        return self._create(chat_id, "interactive", json.dumps(card, ensure_ascii=False))
 
     def _create(self, chat_id: str, msg_type: str, content: str, retries: int = 2) -> bool:
         for attempt in range(retries):
