@@ -12,6 +12,8 @@ class LLMResponse:
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
+    tool_calls: list[dict] | None = None
+    raw_message: dict | None = None
 
 
 class BaseLLMClient(ABC):

@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS analysis_cache (
     analyzed_at TEXT NOT NULL,
     session_key TEXT
 );
+
+CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, id);
 """
 
 

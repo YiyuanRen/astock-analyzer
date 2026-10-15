@@ -61,6 +61,9 @@ $env:PYTHONUTF8=1
 
 5. PowerShell 会吞掉命令行参数里的 `@1200`(展开运算符), 带 `@` 的 S 指令请在飞书里测; 远程 ssh 命令用 `.sh` 文件 + scp, 别在双引号里嵌 `$`。
 6. 飞书群聊必须从 @ 菜单选中机器人(真 mention); 同一飞书应用不要在两处同时运行(本机和 ECS 只留一个)。
+7. **Devin Desktop 工具防卡死(重要经验)**:
+   - Plan 模式下**不要调用 `write_plan` 工具**(当前 Windows 宿主进程对 `write_plan` 存在 IPC 死锁 Bug, 调用即挂起), 直接在 `exit_plan_mode(plan=...)` 中传入完整方案即可。
+   - 若某个文件正处于用户 IDE 的 `Active Document`(活动编辑器标签页), 避免对其调用 `read` 工具(可能因编辑器缓冲区同步阻塞), 改用 `grep` 或在 `exec` 中用 Python 读取。
 
 ## 架构(app/)
 

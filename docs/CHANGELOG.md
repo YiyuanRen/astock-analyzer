@@ -62,6 +62,18 @@
 
 ---
 
+## 2026-10-16 — 新增智能投研 Agent 自由问答兜底与 Schema 2.0 卡片全面升级
+
+- **飞书卡片 Schema 2.0 升级 (`app/bot/card_builder.py`)**: A1(分析主卡)、B1(双排彩色KPI持仓卡)、C1(灰底多列表格任务列表)、D1(三列KPI+应对参考止损卡)、E1(紫色智能投研问答卡), 统一红涨绿跌/红盈绿亏着色, 观望态自动省去无内容的入场/止损/目标框。
+- **智能 Agent 自由问答兜底 (`app/agent/`)**:
+  - `H/help/帮助/?` 查看指令说明; 其余非指令自然语言全部进入 `run_agent_chat`。
+  - 按 `chat_id` 保存最近 **20 轮** 对话记忆(`chat_history` 表), `Q/B/S` 分析后自动注入股票结构摘要供连续追问。
+  - 内置 **9 大东方财富同源工具**(`search_security`、`analyze_stock_chan`、`get_stock_fundamentals`、`get_market_overview`、`analyze_index_chan`、`get_sector_hotspots`、`get_sector_stocks`、`search_financial_news`、`get_chat_watchlist`) + **1 个复合工作流**(`workflow_scan_hotspot_leaders`)。
+  - 预留 `CLIToolAdapter`、`MCPToolAdapter`、`WorkflowRegistry` 扩展点, 支持在 `config.yaml` 挂载外部工具。
+- **文档**: `README.md` 补充完整能力说明与 6 大场景对话 Demo; 单测增至 152 个。
+
+---
+
 ## 2026-10-15 — 新增港股(HK)分析与跟踪支持
 
 - **编码解析 (`app/data/market.py` + `parser.py`)**: 支持 5 位港股代码(`00700`)及带 `HK` 前/后缀(`00700.HK`、`HK00700`、`HK700`、`700.HK`, 自动补零为 5 位), 兼容 A 股 6 位代码及可选 `SH`/`SZ`/`BJ` 前后缀; 无前缀 1~4 位数字判为非法。

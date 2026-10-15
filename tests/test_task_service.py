@@ -171,7 +171,8 @@ def test_router_dispatch_and_notify():
     assert "暂无活跃任务" in run(router.handle_async("L", PRIV))
     r = run(router.handle_async("S 000001 @10.45 100", PRIV, notify=notes.append))
     assert "已建立持仓跟踪" in md(r)
-    assert "指令格式" in run(router.handle_async("你好", PRIV))
+    assert "快捷指令格式" in run(router.handle_async("H", PRIV))
+    assert "快捷指令格式" in run(router.handle_async("帮助", PRIV))
 
 
 def test_hk_b_and_s_via_router():

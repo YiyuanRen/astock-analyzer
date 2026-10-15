@@ -39,12 +39,41 @@ class OpenAICompatibleClient(BaseLLMClient):
             **kwargs,
         )
         choice = resp.choices[0]
+        msg = choice.message
         usage = resp.usage
+        tool_calls = None
+        raw_message = None
+        if getattr(msg, "tool_calls", None):
+            tool_calls = [
+                {
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments or "{}",
+                }
+                for tc in msg.tool_calls
+            ]
+            raw_message = {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments or "{}",
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            }
         return LLMResponse(
-            content=choice.message.content or "",
+            content=msg.content or "",
             model=resp.model,
             input_tokens=getattr(usage, "prompt_tokens", 0) if usage else 0,
             output_tokens=getattr(usage, "completion_tokens", 0) if usage else 0,
+            tool_calls=tool_calls,
+            raw_message=raw_message,
         )
 
     async def stream_chat(self, messages: list[dict], **kwargs) -> AsyncIterator[str]:

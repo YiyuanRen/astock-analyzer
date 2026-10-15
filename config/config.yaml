@@ -59,6 +59,16 @@ task:
   fallback_stop_pct: 0.07    # 找不到结构支撑时: 现价 × (1-7%)
   fallback_target_pct: 0.10  # 找不到压力位时: 现价 × (1+10%)
 
+# --- 智能 Agent 对话兜底与工具/工作流扩展 ---
+agent:
+  max_history_rounds: 20     # 按 chat_id 保存最近 20 轮对话历史(40 条消息)
+  max_tool_steps: 5          # 单次提问最多工具调用轮数
+  step_timeout_sec: 25       # 单步 LLM/工具超时
+  # 扩展点1: 外部 Search CLI 工具列表(示例: [{name: "web_search_cli", description: "...", command: ["my-search", "{query}"]}])
+  cli_tools: []
+  # 扩展点2: 外部 MCP Server 列表(示例: [{name: "market_mcp", transport: "stdio", command: ["npx", "..."]}])
+  mcp_servers: []
+
 # --- 存储 ---
 storage:
   db_path: "data/astock.db"

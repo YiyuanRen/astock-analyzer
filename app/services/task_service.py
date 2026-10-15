@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
+from app.agent import memory
 from app.bot.card_builder import build_task_list_card
 from app.config import get_config
 from app.data import fetcher
@@ -65,6 +66,7 @@ async def create_b(ctx: dict, code: str):
         header = ("**✅ 已创建买入跟踪**\n"
                   f"- 每个交易日 {rpt_time} 推送日报；盘中每 30 分钟跟踪，出现买点即推送\n"
                   f"- 当前结论：**{res.direction}**｜日线信号：{signal}")
+    memory.record_command_analysis(chat_id, f"B {code}", res)
     return res.to_card(header)
 
 
@@ -102,6 +104,7 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         title = "💼 已建立持仓跟踪"
         note = "已自动取消该股的买入跟踪" if switched else ""
 
+    memory.record_command_analysis(chat_id, f"S {code}", res)
     return res.to_holding_card(
         banner_title=title,
         price=price,

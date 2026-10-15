@@ -47,9 +47,21 @@ def test_l_and_m():
     assert (c.provider, c.model) == ("deepseek", "deepseek-chat")
 
 
-@pytest.mark.parametrize("text", ["你好", "Q 700", "Q 1234", "Q 1234567", "Q000001", "", None, "X 000001"])
-def test_invalid_goes_help(text):
+@pytest.mark.parametrize("text", ["H", "help", "帮助", "?", "？", "Q 700", "Q 1234", "Q 1234567", "Q000001", "", None, "X 000001"])
+def test_invalid_or_help_goes_help(text):
     assert parse(text).kind == "HELP"
+
+
+@pytest.mark.parametrize("text", [
+    "你好",
+    "今天大盘趋势怎么样？",
+    "刚才那个票如果跌破400怎么办",
+    "帮我看看小米集团和比亚迪谁走势好",
+    "半导体今天为什么大跌",
+])
+def test_free_text_goes_chat(text):
+    c = parse(text)
+    assert c.kind == "CHAT" and c.text == text.strip()
 
 
 @pytest.mark.parametrize("code,secid", [

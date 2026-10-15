@@ -581,3 +581,49 @@ def build_stop_alert_card(t, price: float, first: bool, disclaimer: str) -> dict
             "raw_card": raw_card,
         }
     }
+
+
+# ---------------- E1：智能 Agent 投研问答卡片 (Schema 2.0 purple) ----------------
+def build_agent_chat_card(
+    question: str,
+    answer_md: str,
+    used_tools: list[str] | None = None,
+    disclaimer: str = "⚠️ 仅供参考，不构成投资建议",
+) -> dict:
+    title = "🤖 投研助手 · 智能解答"
+    if used_tools:
+        uniq = list(dict.fromkeys(used_tools))
+        subtitle = "已调用：" + " · ".join(uniq[:4])
+    else:
+        subtitle = "基于会话上下文与缠论投研知识库解答"
+
+    body_md = (answer_md or "").strip()
+    if body_md.endswith(disclaimer):
+        body_md = body_md[:-len(disclaimer)].rstrip()
+
+    q_short = question.strip().replace("\n", " ")
+    if len(q_short) > 60:
+        q_short = q_short[:57] + "..."
+
+    elements: list[dict] = [
+        banner_box(f"**💬 提问**：{q_short}", bg="violet-50"),
+        {"tag": "markdown", "content": body_md or answer_md},
+        {"tag": "hr"},
+        {
+            "tag": "markdown",
+            "content": f"<font color='grey'>💡 发送 H 查看快捷指令(Q/B/S/C/L/M) · {disclaimer}</font>",
+        },
+    ]
+
+    flat_md = f"**💬 提问**：{q_short}\n\n{body_md}\n\n{disclaimer}"
+    raw_card = schema2_card(title, subtitle, "purple", elements)
+    return {
+        "card": {
+            "title": title,
+            "subtitle": subtitle,
+            "template": "purple",
+            "markdown": flat_md,
+            "raw_card": raw_card,
+        }
+    }
+
