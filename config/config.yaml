@@ -43,6 +43,8 @@ chan:
 # --- 调度 ---
 scheduler:
   timezone: "Asia/Shanghai"
+  # 每日市场信息早报: 08:00 首推, 若源站未出稿则在 08:15、08:30 重试, 08:30 仍无则推状态提示
+  morning_briefing_times: ["08:00", "08:15", "08:30"]
   daily_analysis: { hour: 15, minute: 5 }       # A股每交易日 15:05 日报(B+S)
   daily_analysis_hk: { hour: 16, minute: 10 }   # 港股每交易日 16:10 日报(B+S, 收市竞价后)
   # B 盘中跟踪: 对齐 30 分钟K线收盘后 1 分钟 (A股+港股并集; 12:01/15:01/15:31 仅港股跑)
@@ -72,6 +74,11 @@ agent:
 # --- 存储 ---
 storage:
   db_path: "data/astock.db"
+
+# --- 市场早报 Web 服务 ---
+briefing:
+  http_port: 8000
+  public_base_url: "http://8.153.91.185"
 
 # --- 风险提示 (每份报告末尾必带) ---
 risk_disclaimer: "⚠️ 仅供参考，不构成投资建议"

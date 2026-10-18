@@ -16,9 +16,11 @@ from dotenv import load_dotenv  # noqa: E402
 
 from app.bot.feishu_bot import FeishuBot  # noqa: E402
 from app.commands.router import handle  # noqa: E402
+from app.config import get_config  # noqa: E402
 from app.logging_utils import get_logger  # noqa: E402
 from app.models.database import init_db  # noqa: E402
 from app.scheduler.jobs import build_scheduler  # noqa: E402
+from app.web.briefing_server import start_briefing_http_server  # noqa: E402
 
 logger = get_logger("run_bot")
 
@@ -31,6 +33,9 @@ def main():
     if not app_id or not app_secret:
         print("错误: .env 缺少 FEISHU_APP_ID / FEISHU_APP_SECRET")
         sys.exit(1)
+
+    port = int((get_config().raw.get("briefing") or {}).get("http_port", 8000))
+    start_briefing_http_server(host="0.0.0.0", port=port)
 
     bot = FeishuBot(app_id, app_secret, on_text=handle)
     sched = build_scheduler(bot)      # FeishuBot 本身即通知器(按 chat_id 推送)

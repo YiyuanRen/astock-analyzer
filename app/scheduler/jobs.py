@@ -16,16 +16,22 @@ from datetime import datetime, time
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.bot.card_builder import build_stop_alert_card
+from app.bot.card_builder import (
+    build_briefing_status_card,
+    build_morning_briefing_card,
+    build_stop_alert_card,
+)
 from app.config import get_config
 from app.data import fetcher
 from app.data import trading_calendar as cal
 from app.data.market import daily_report_time_str, decimals_of, market_of
 from app.engine import holding
 from app.logging_utils import get_logger
-from app.models import task_repo
+from app.models import briefing_repo, task_repo
 from app.models.database import TZ, now, now_str
+from app.services import briefing_service
 from app.services.analysis_service import AnalysisResult, StockNotFound, analyze_stock
+from app.services.briefing_fetcher import BriefingNotUpdatedError
 
 logger = get_logger("scheduler.jobs")
 
@@ -276,6 +282,92 @@ def stop_loss_check(notifier, *, current: datetime | None = None, force: bool = 
     return stats
 
 
+# ---------------- 08:00 市场信息早报 (含 08:15/08:30 延迟重试与失败提示) ----------------
+async def morning_briefing_job(
+    notifier,
+    *,
+    current: datetime | None = None,
+    force: bool = False,
+    is_final_attempt: bool = True,
+    target_date: str | None = None,
+    allow_latest_fallback: bool = False,
+) -> dict:
+    current = _norm(current)
+    r_date = target_date or current.strftime("%Y-%m-%d")
+    stats = {"report_date": r_date, "pushed": 0, "failed": 0, "status_alerted": 0, "skipped": None}
+
+    existing = briefing_repo.get_briefing(r_date)
+    if existing and existing.pushed_at and not force:
+        stats["skipped"] = "今日已推送"
+        return stats
+
+    subs = briefing_repo.list_enabled_subscribers()
+    disclaimer = get_config().risk_disclaimer
+    archive_url = briefing_service.briefing_archive_url()
+
+    try:
+        rec = await briefing_service.get_or_generate_briefing(
+            r_date, force=force, allow_latest_fallback=allow_latest_fallback
+        )
+    except BriefingNotUpdatedError as e:
+        if not is_final_attempt and not force:
+            logger.info("早报 %s 源站暂未更新, 等待下一重试点检查", r_date)
+            stats["skipped"] = "暂未更新_待重试"
+            return stats
+        latest = briefing_repo.get_latest_briefing()
+        latest_d = latest.report_date if latest else e.latest_date
+        latest_u = briefing_service.briefing_page_url(latest_d) if latest_d else None
+        card = build_briefing_status_card(
+            r_date,
+            reason=str(e),
+            latest_date=latest_d,
+            latest_url=latest_u,
+            archive_url=archive_url,
+            disclaimer=disclaimer,
+        )["card"]
+        for sub in subs:
+            if _push(notifier, sub["chat_id"], card["title"], card["markdown"],
+                     card["template"], raw_card=card.get("raw_card")):
+                stats["status_alerted"] += 1
+            else:
+                stats["failed"] += 1
+        return stats
+    except Exception as e:  # noqa: BLE001
+        logger.exception("早报 %s 生成失败: %s", r_date, e)
+        latest = briefing_repo.get_latest_briefing()
+        latest_d = latest.report_date if latest else None
+        latest_u = briefing_service.briefing_page_url(latest_d) if latest_d else None
+        card = build_briefing_status_card(
+            r_date,
+            reason=f"早报生成异常（{type(e).__name__}: {e}）",
+            latest_date=latest_d,
+            latest_url=latest_u,
+            archive_url=archive_url,
+            disclaimer=disclaimer,
+        )["card"]
+        for sub in subs:
+            if _push(notifier, sub["chat_id"], card["title"], card["markdown"],
+                     card["template"], raw_card=card.get("raw_card")):
+                stats["status_alerted"] += 1
+            else:
+                stats["failed"] += 1
+        return stats
+
+    page_url = briefing_service.briefing_page_url(rec.report_date)
+    card = build_morning_briefing_card(rec, page_url, archive_url, disclaimer)["card"]
+    for sub in subs:
+        if _push(notifier, sub["chat_id"], card["title"], card["markdown"],
+                 card["template"], raw_card=card.get("raw_card")):
+            stats["pushed"] += 1
+        else:
+            stats["failed"] += 1
+
+    if stats["pushed"] > 0:
+        briefing_repo.mark_pushed(rec.report_date)
+    logger.info("市场早报推送完成: %s", stats)
+    return stats
+
+
 # ---------------- 调度器 ----------------
 def _runner(name: str, fn):
     def run():
@@ -293,6 +385,21 @@ def build_scheduler(notifier) -> BackgroundScheduler:
         timezone=TZ,
         job_defaults={"coalesce": True, "max_instances": 1,
                       "misfire_grace_time": int(cfg.get("misfire_grace_sec", 1800))})
+
+    # 每日 08:00 市场信息早报 + 08:15 / 08:30 延迟重试
+    mb_times = cfg.get("morning_briefing_times", ["08:00", "08:15", "08:30"])
+    for idx, hhmm in enumerate(mb_times):
+        h, m = hhmm.split(":")
+        is_final = (idx == len(mb_times) - 1)
+        sched.add_job(
+            _runner(
+                f"morning_briefing@{hhmm}",
+                lambda final=is_final: asyncio.run(morning_briefing_job(notifier, is_final_attempt=final)),
+            ),
+            CronTrigger(hour=int(h), minute=int(m), timezone=TZ),
+            id=f"morning_briefing_{hhmm}",
+            name=f"市场信息早报 {hhmm}",
+        )
 
     da = cfg.get("daily_analysis", {"hour": 15, "minute": 5})
     sched.add_job(_runner("daily_analysis", lambda: asyncio.run(daily_analysis(notifier, market="CN"))),

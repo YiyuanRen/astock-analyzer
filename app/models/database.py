@@ -62,6 +62,34 @@ CREATE TABLE IF NOT EXISTS chat_history (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_history_chat ON chat_history(chat_id, id);
+
+CREATE TABLE IF NOT EXISTS morning_briefings (
+    report_date TEXT PRIMARY KEY,
+    article_id TEXT,
+    source_title TEXT,
+    source_uri TEXT,
+    published_at TEXT,
+    structured_json TEXT NOT NULL,
+    html_content TEXT NOT NULL,
+    pushed_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS briefing_subscriptions (
+    chat_id TEXT PRIMARY KEY,
+    chat_type TEXT NOT NULL DEFAULT 'p2p',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO briefing_subscriptions(chat_id, chat_type, enabled, updated_at)
+SELECT DISTINCT chat_id, chat_type, 1, MAX(created_at) FROM tasks
+WHERE chat_id != 'cli_chat' GROUP BY chat_id;
+
+INSERT OR IGNORE INTO briefing_subscriptions(chat_id, chat_type, enabled, updated_at)
+SELECT DISTINCT chat_id, 'p2p', 1, MAX(created_at) FROM chat_history
+WHERE chat_id != 'cli_chat' AND (content LIKE 'Q %' OR content LIKE 'B %' OR content LIKE 'S %')
+GROUP BY chat_id;
 """
 
 

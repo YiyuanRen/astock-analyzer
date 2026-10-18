@@ -9,8 +9,10 @@ services:
     env_file: ../.env            # 密钥运行时注入, 不进镜像
     environment:
       - TZ=Asia/Shanghai
+    ports:
+      - "80:8000"                # 暴露早报 HTML 可视化市场地图 Web 访问端口
     volumes:
-      - ../data:/app/data        # SQLite 持久化: 重建容器不丢任务
+      - ../data:/app/data        # SQLite + data/briefings/*.html 持久化: 重建容器不丢任务与历史页面
     logging:
       driver: json-file
       options:

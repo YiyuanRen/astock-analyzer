@@ -28,8 +28,10 @@ from app.services.notifier import ConsoleNotifier  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("job", choices=["daily", "intraday", "stoploss"])
+    ap.add_argument("job", choices=["daily", "intraday", "stoploss", "briefing"])
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--date", default=None, help="briefing 可选指定日期 YYYY-MM-DD")
+    ap.add_argument("--latest-fallback", action="store_true", help="briefing 若当日未更新则回退生成最近一期")
     ap.add_argument("--market", choices=["CN", "HK"], default=None, help="日报可选限定市场 CN 或 HK")
     ap.add_argument("--price", action="append", default=[], metavar="CODE=PX")
     ap.add_argument("--send", action="store_true")
@@ -50,6 +52,15 @@ def main():
         result = asyncio.run(jobs.daily_analysis(notifier, force=a.force, market=a.market))
     elif a.job == "intraday":
         result = asyncio.run(jobs.intraday_b(notifier, force=a.force))
+    elif a.job == "briefing":
+        result = asyncio.run(
+            jobs.morning_briefing_job(
+                notifier,
+                force=a.force,
+                target_date=a.date,
+                allow_latest_fallback=a.latest_fallback,
+            )
+        )
     else:
         result = jobs.stop_loss_check(notifier, force=a.force, prices=prices or None)
     print("结果:", result)

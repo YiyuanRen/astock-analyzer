@@ -627,3 +627,200 @@ def build_agent_chat_card(
         }
     }
 
+
+# ---------------- F1：市场信息早报卡片 (YYYY-MM-DD 早餐, Schema 2.0) ----------------
+def _dir_md(direction: str) -> str:
+    d = str(direction or "中性").strip()
+    if "涨" in d or "多" in d or "升" in d:
+        return f"<font color='red'>**▲{d}**</font>"
+    if "跌" in d or "空" in d or "降" in d:
+        return f"<font color='green'>**▼{d}**</font>"
+    if "分化" in d or "震荡" in d:
+        return f"<font color='orange'>**◆{d}**</font>"
+    return f"<font color='grey'>**●{d}**</font>"
+
+
+def build_morning_briefing_card(
+    rec,
+    page_url: str,
+    archive_url: str,
+    disclaimer: str = "⚠️ 仅供参考，不构成投资建议",
+) -> dict:
+    """构建每日 08:00 市场信息早报飞书卡片(Title 固定为 'YYYY-MM-DD 早餐')。"""
+    st = rec.structured or {}
+    events = st.get("events_table") or []
+    chains = st.get("causal_chains") or []
+    verifications = st.get("verification_list") or []
+    headline = (st.get("headline_summary") or "全球宏观与核心资产传导全景").strip()
+
+    title = f"{rec.report_date} 早餐"
+    subtitle = headline[:75]
+
+    elements: list[dict] = [
+        kpi_row([
+            kpi_col("📌 核心要闻", f"**<font color='blue'>{len(events)} 条</font>**",
+                    "<font color='grey'>三层漏斗精选</font>", bg="blue-50"),
+            kpi_col("🔗 因果传导链", f"**<font color='violet'>{len(chains)} 条</font>**",
+                    "<font color='grey'>流程图 + 术语白话</font>", bg="violet-50"),
+            kpi_col("🔍 待验证清单", f"**<font color='orange'>{len(verifications)} 项</font>**",
+                    "<font color='grey'>盯盘变量 + 历史类比</font>", bg="orange-50"),
+        ], flex_mode="trisect"),
+        banner_box(
+            f"**💡 今日核心主线**：{headline}\n"
+            f"🗺️ **完整交互版页面**：[点击打开《{rec.report_date} 一页 HTML 可视化市场地图》]({page_url})",
+            bg="blue-50",
+        ),
+        {"tag": "markdown", "content": "#### 📌 核心要闻四列表（事件 · 影响资产 · 方向 · 传导逻辑）"},
+        grey_row([
+            ("**事件**", 3),
+            ("**影响资产**", 2),
+            ("**方向**", 1),
+            ("**传导逻辑**", 3),
+        ]),
+        {"tag": "hr"},
+    ]
+
+    flat_lines = [
+        f"**{title}**｜{headline}",
+        f"🗺️ 可视化市场地图：{page_url}",
+        "\n#### 📌 核心要闻速览",
+    ]
+
+    for ev in events[:8]:
+        ev_name = str(ev.get("event") or "—")
+        asset = str(ev.get("asset") or "—")
+        d_raw = str(ev.get("direction") or "中性")
+        logic = str(ev.get("logic") or "—")
+        elements.append(grey_row([
+            (f"**{ev_name}**", 3),
+            (f"<font color='blue'>{asset}</font>", 2),
+            (_dir_md(d_raw), 1),
+            (logic, 3),
+        ]))
+        flat_lines.append(f"- **{ev_name}**｜{asset}（{d_raw}）：{logic}")
+
+    if chains:
+        elements.append({"tag": "hr"})
+        chain_md_lines = ["#### 🔗 核心因果传导链提要"]
+        for idx, ch in enumerate(chains[:5], 1):
+            c_title = ch.get("title") or f"链条{idx}"
+            c_status = ch.get("status") or "市场共识"
+            s_tag = f"<font color='purple'>[{c_status}]</font>" if "共识" in c_status else f"<font color='orange'>[{c_status}]</font>"
+            nodes = ch.get("flow_nodes") or []
+            flow_str = " → ".join(str(x) for x in nodes) if nodes else str(ch.get("flow") or "")
+            chain_md_lines.append(f"- {s_tag} **{c_title}**：{flow_str}")
+        chain_block = "\n".join(chain_md_lines)
+        elements.append({"tag": "markdown", "content": chain_block})
+        flat_lines.append("\n" + chain_block)
+
+    if verifications:
+        v_md_lines = ["#### 🔍 今日重点待验证变量"]
+        for vf in verifications[:3]:
+            topic = vf.get("topic") or ""
+            w_vars = "；".join(str(v) for v in (vf.get("watch_variables") or [])[:3])
+            analogy = vf.get("historical_analogy") or {}
+            h_ev = analogy.get("event") if isinstance(analogy, dict) else ""
+            h_suffix = f"（历史类比：{h_ev}）" if h_ev else ""
+            v_md_lines.append(f"- **{topic}**：盯住 {w_vars}{h_suffix}")
+        v_block = "\n".join(v_md_lines)
+        elements.append({"tag": "markdown", "content": v_block})
+        flat_lines.append("\n" + v_block)
+
+    # 底部操作按钮组(遵循 Feishu_Card_Style.md 第 7 节)
+    elements.append({"tag": "hr"})
+    elements.append({
+        "tag": "column_set",
+        "flex_mode": "bisect",
+        "background_style": "default",
+        "columns": [
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "🗺️ 打开 HTML 可视化市场地图"},
+                    "type": "primary",
+                    "width": "fill",
+                    "size": "medium",
+                    "behaviors": [{"type": "open_url", "default_url": page_url}],
+                }],
+            },
+            {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "elements": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "🗂️ 往期早报历史归档"},
+                    "type": "default",
+                    "width": "fill",
+                    "size": "medium",
+                    "behaviors": [{"type": "open_url", "default_url": archive_url}],
+                }],
+            },
+        ],
+    })
+    elements.append({
+        "tag": "markdown",
+        "content": (
+            f"<font color='grey'>数据源：华尔街见闻早餐 FM-Radio · "
+            f"完整术语白话与历史类比请点击上方按钮浏览 HTML 页面 · "
+            f"发送「关闭早报」可退订 · {disclaimer}</font>"
+        ),
+    })
+    flat_lines.append(f"\n{disclaimer}")
+
+    raw_card = schema2_card(title, subtitle, "blue", elements)
+    return {
+        "card": {
+            "title": title,
+            "subtitle": subtitle,
+            "template": "blue",
+            "markdown": "\n".join(flat_lines),
+            "raw_card": raw_card,
+        }
+    }
+
+
+def build_briefing_status_card(
+    report_date: str,
+    reason: str,
+    *,
+    latest_date: str | None = None,
+    latest_url: str | None = None,
+    archive_url: str = "",
+    disclaimer: str = "⚠️ 仅供参考，不构成投资建议",
+) -> dict:
+    """当源站未更新(如周日/节假日)或 LLM/网络失败时推送给用户的早报状态提示卡片。"""
+    title = f"{report_date} 早餐"
+    subtitle = f"⚠️ 早报未生成：{reason[:60]}"
+    lines = [
+        "#### ⚠️ 今日市场早报状态提示",
+        f"- **状态说明**：{reason}",
+    ]
+    if latest_date and latest_url:
+        lines.append(f"- **最近一期回顾**：[📖 点击查看《{latest_date} 早餐 · 可视化市场地图》]({latest_url})")
+    if archive_url:
+        lines.append(f"- **历史早报目录**：[🗂️ 点击浏览往期全部早报归档]({archive_url})")
+    lines.append("- 您也可以随时在对话框发送「今日早报」手动重新触发获取，或直接向我提问今日大盘与板块热点。")
+
+    md_body = "\n".join(lines)
+    elements: list[dict] = [
+        banner_box(f"**🔔 {report_date} 市场早报未能按时产出**", bg="orange-50"),
+        {"tag": "markdown", "content": md_body},
+        {"tag": "hr"},
+        {"tag": "markdown", "content": f"<font color='grey'>发送「关闭早报」可退订每日推送 · {disclaimer}</font>"},
+    ]
+    raw_card = schema2_card(title, subtitle, "orange", elements)
+    return {
+        "card": {
+            "title": title,
+            "subtitle": subtitle,
+            "template": "orange",
+            "markdown": f"{md_body}\n\n{disclaimer}",
+            "raw_card": raw_card,
+        }
+    }
+
+

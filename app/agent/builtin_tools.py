@@ -20,7 +20,8 @@ from app.data.market import display_code, parse_code
 from app.engine import holding
 from app.engine.chan_analyzer import ChanAnalyzer
 from app.engine.multi_level import multi_level_analyze
-from app.models import cache_repo, task_repo
+from app.models import briefing_repo, cache_repo, task_repo
+from app.services import briefing_service
 from app.services.analysis_service import StockNotFound, analyze_stock
 
 _index_analyzer = ChanAnalyzer()
@@ -182,6 +183,45 @@ async def _tool_get_chat_watchlist(ctx: dict) -> dict:
     return {"tasks": out}
 
 
+async def _tool_manage_morning_briefing(ctx: dict, action: str = "status") -> dict:
+    """管理当前会话(私聊或群聊)的每日 08:00 市场信息早报订阅状态或获取最新早报链接。"""
+    chat_id = (ctx or {}).get("chat_id") or ""
+    chat_type = (ctx or {}).get("chat_type") or "p2p"
+    act = (action or "status").strip().lower()
+    if act == "enable":
+        briefing_repo.set_subscription(chat_id, True, chat_type)
+        return {
+            "status": "enabled",
+            "message": "已为当前会话开启每日北京时间 08:00 市场信息早报推送。",
+            "archive_url": briefing_service.briefing_archive_url(),
+        }
+    if act == "disable":
+        briefing_repo.set_subscription(chat_id, False, chat_type)
+        return {
+            "status": "disabled",
+            "message": "已为当前会话关闭每日市场信息早报推送（随时可重新开启）。",
+        }
+    if act == "get_latest":
+        rec = await briefing_service.get_or_generate_briefing(allow_latest_fallback=True)
+        url = briefing_service.briefing_page_url(rec.report_date)
+        return {
+            "report_date": rec.report_date,
+            "source_title": rec.source_title,
+            "page_url": url,
+            "archive_url": briefing_service.briefing_archive_url(),
+            "headline_summary": rec.structured.get("headline_summary"),
+            "events_table": rec.structured.get("events_table"),
+        }
+    enabled = briefing_repo.is_subscribed(chat_id)
+    latest = briefing_repo.get_latest_briefing()
+    return {
+        "subscribed": enabled,
+        "latest_report_date": latest.report_date if latest else None,
+        "latest_page_url": briefing_service.briefing_page_url(latest.report_date) if latest else None,
+        "archive_url": briefing_service.briefing_archive_url(),
+    }
+
+
 def register_builtin_tools(registry: ToolRegistry) -> None:
     registry.register(FunctionTool(
         name="search_security",
@@ -289,5 +329,23 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
         description="获取当前聊天会话(群聊或私聊)中所有活跃的买入跟踪(B)与持仓跟踪(S)任务列表，包含实时现价、涨跌幅、持仓浮盈、距止损安全垫及缠论信号摘要。",
         parameters={"type": "object", "properties": {}},
         fn=_tool_get_chat_watchlist,
+        pass_ctx=True,
+    ))
+    registry.register(FunctionTool(
+        name="manage_morning_briefing",
+        label="市场早报订阅与查阅",
+        description="开启(enable)、关闭(disable)、查询状态(status)当前会话的每日 08:00 市场信息早报推送，或立即获取最新一期早报及 HTML 市场地图链接(get_latest)。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["enable", "disable", "status", "get_latest"],
+                    "description": "enable=开启早报推送, disable=关闭早报推送, status=查询当前订阅状态, get_latest=获取最新一期早报与HTML地图链接",
+                }
+            },
+            "required": ["action"],
+        },
+        fn=_tool_manage_morning_briefing,
         pass_ctx=True,
     ))
