@@ -40,7 +40,7 @@ def show_current() -> str:
     src = "已手动切换" if source == "db" else "默认配置"
     return (f"当前模型：{provider} / {model}（{src}）\n"
             f"可用：{'；'.join(_available_providers()) or '无'}\n"
-            f"切换：M <provider> [model]，例如 M deepseek deepseek-chat")
+            f"切换：M <provider> [model]，例如 M deepseek deepseek-v4-pro")
 
 
 async def handle_m(ctx: dict, provider: str | None, model: str | None) -> str:
@@ -55,11 +55,14 @@ async def handle_m(ctx: dict, provider: str | None, model: str | None) -> str:
     pconf = get_config().provider_conf(provider)
     if not pconf:
         return f"未知 provider：{provider}。\n{show_current()}"
+    allowed = pconf.get("models") or []
     if not model:
-        models = pconf.get("models") or []
-        if not models:
+        if not allowed:
             return f"请指定模型名：M {provider} <model>"
-        model = models[0]
+        model = allowed[0]
+    elif allowed and model not in allowed:
+        return (f"切换失败：{provider} 仅固定支持 {', '.join(allowed)}（已开启深度思考），"
+                f"不支持切换为 {model}。")
 
     try:
         await probe(provider, model)

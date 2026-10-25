@@ -2,15 +2,15 @@
 
 # --- LLM 模型池 (当前仅 mimo / deepseek 启用; 其余保留待启用) ---
 llm:
-  # 默认 DeepSeek (快、中文好); MiMo 可用 M 指令热切换。
+  # 默认 DeepSeek 旗舰深度思考模型 deepseek-v4-pro (不支持切换为其他 deepseek 模型); MiMo 可用 M 指令热切换。
   default_provider: deepseek
-  default_model: deepseek-chat
-  timeout_seconds: 25          # 超时走降级(纯结构化报告)
+  default_model: deepseek-v4-pro
+  timeout_seconds: 75          # 深度思考模型耗时较长, 放宽至 75s 超时走降级
   providers:
     deepseek:
       base_url: "https://api.deepseek.com"
       env_key: DEEPSEEK_API_KEY
-      models: ["deepseek-chat", "deepseek-reasoner"]
+      models: ["deepseek-v4-pro"]
       enabled: true
     mimo:
       # 小米 MiMo Token Plan (key 以 tp- 开头) 的 OpenAI 兼容地址
@@ -65,7 +65,7 @@ task:
 agent:
   max_history_rounds: 20     # 按 chat_id 保存最近 20 轮对话历史(40 条消息)
   max_tool_steps: 5          # 单次提问最多工具调用轮数
-  step_timeout_sec: 25       # 单步 LLM/工具超时
+  step_timeout_sec: 75       # 单步 LLM/工具超时(适配 deepseek-v4-pro 深度思考)
   # 扩展点1: 外部 Search CLI 工具列表(示例: [{name: "web_search_cli", description: "...", command: ["my-search", "{query}"]}])
   cli_tools: []
   # 扩展点2: 外部 MCP Server 列表(示例: [{name: "market_mcp", transport: "stdio", command: ["npx", "..."]}])

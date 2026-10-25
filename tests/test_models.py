@@ -72,5 +72,8 @@ def test_llm_config_falls_back_to_default_then_persists(tmp_db):
     assert source == "default" and provider and model
     config_store.set_llm_config("mimo", "mimo-v2.6-flash")
     assert config_store.get_llm_config() == ("mimo", "mimo-v2.6-flash", "db")
-    config_store.set_llm_config("deepseek", "deepseek-chat")  # 覆盖(单例行)
-    assert config_store.get_llm_config() == ("deepseek", "deepseek-chat", "db")
+    config_store.set_llm_config("deepseek", "deepseek-v4-pro")  # 覆盖(单例行)
+    assert config_store.get_llm_config() == ("deepseek", "deepseek-v4-pro", "db")
+    # 即使旧库里存过 deepseek-chat, 读取时也强制归一化为 deepseek-v4-pro
+    config_store.set_llm_config("deepseek", "deepseek-chat")
+    assert config_store.get_llm_config() == ("deepseek", "deepseek-v4-pro", "db")

@@ -43,10 +43,18 @@ def test_show_current(tmp_db):
 
 def test_switch_success_persists(tmp_db, ok_probe, monkeypatch):
     monkeypatch.delenv("ADMIN_OPEN_IDS", raising=False)
-    out = run(model_cmd.handle_m({"sender_open_id": "ou_a"}, "deepseek", "deepseek-chat"))
+    out = run(model_cmd.handle_m({"sender_open_id": "ou_a"}, "deepseek", "deepseek-v4-pro"))
     assert "已切换" in out
-    assert get_llm_config()[:3] == ("deepseek", "deepseek-chat", "db")
-    assert ok_probe == [("deepseek", "deepseek-chat")]
+    assert get_llm_config()[:3] == ("deepseek", "deepseek-v4-pro", "db")
+    assert ok_probe == [("deepseek", "deepseek-v4-pro")]
+
+
+def test_deepseek_other_models_rejected(tmp_db, ok_probe, monkeypatch):
+    monkeypatch.delenv("ADMIN_OPEN_IDS", raising=False)
+    for bad in ("deepseek-chat", "deepseek-flash", "deepseek-reasoner"):
+        out = run(model_cmd.handle_m({"sender_open_id": "ou_a"}, "deepseek", bad))
+        assert "仅固定支持 deepseek-v4-pro" in out
+    assert ok_probe == []
 
 
 def test_switch_defaults_model_to_first_of_provider(tmp_db, ok_probe, monkeypatch):
@@ -83,5 +91,5 @@ def test_probe_failure_keeps_old_model(tmp_db, monkeypatch):
         raise TimeoutError()
 
     monkeypatch.setattr(model_cmd, "probe", boom)
-    out = run(model_cmd.handle_m({}, "deepseek", "deepseek-chat"))
+    out = run(model_cmd.handle_m({}, "deepseek", "deepseek-v4-pro"))
     assert "探活未通过" in out and get_llm_config()[2] == "default"

@@ -24,6 +24,12 @@ def get_llm_client(provider: str, model: str) -> BaseLLMClient:
     if not pconf.get("enabled", False):
         raise LLMConfigError(f"provider '{provider}' 未启用 (config.yaml enabled=false)")
 
+    allowed_models = pconf.get("models") or []
+    if allowed_models and model not in allowed_models:
+        raise LLMConfigError(
+            f"provider '{provider}' 仅支持模型 {allowed_models}，不支持切换为 '{model}'"
+        )
+
     api_key = cfg.api_key(provider)
     if not api_key:
         env_key = pconf.get("env_key")

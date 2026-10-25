@@ -14,7 +14,11 @@ def get_llm_config() -> tuple[str, str, str]:
         with get_conn() as conn:
             row = conn.execute("SELECT provider, model FROM llm_config WHERE id=1").fetchone()
         if row:
-            return row["provider"], row["model"], "db"
+            prov, mdl = row["provider"], row["model"]
+            # deepseek 锁定为 deepseek-v4-pro
+            if prov == "deepseek" and mdl != "deepseek-v4-pro":
+                mdl = "deepseek-v4-pro"
+            return prov, mdl, "db"
     except Exception:  # noqa: BLE001  表尚未初始化等, 回落默认
         pass
     llm = get_config().llm
