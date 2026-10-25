@@ -44,13 +44,14 @@ async def _live_price(code: str, fallback: float | None) -> float | None:
     return p or fallback
 
 
-async def create_b(ctx: dict, code: str):
+async def create_b(ctx: dict, code: str, notify=None):
     chat_id, chat_type, by = _scope(ctx)
     existing = task_repo.get_active(chat_id, code)
     if existing and existing.task_type == "S":
         return f"⚠️ {existing.display} 已有持仓跟踪(S)任务。如需改为买入跟踪，请先发送 C {code} 取消。"
     try:
-        res = await analyze_stock(code)
+        sig = len(__import__("inspect").signature(analyze_stock).parameters)
+        res = await (analyze_stock(code, notify=notify) if sig >= 2 else analyze_stock(code))
     except StockNotFound:
         return NOT_FOUND.format(code=code)
 
@@ -70,10 +71,11 @@ async def create_b(ctx: dict, code: str):
     return res.to_card(header)
 
 
-async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int | None):
+async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int | None, notify=None):
     chat_id, chat_type, by = _scope(ctx)
     try:
-        res = await analyze_stock(code)
+        sig = len(__import__("inspect").signature(analyze_stock).parameters)
+        res = await (analyze_stock(code, notify=notify) if sig >= 2 else analyze_stock(code))
     except StockNotFound:
         return NOT_FOUND.format(code=code)
     price = await _live_price(code, res.price)

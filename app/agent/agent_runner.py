@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import time
 
 from app.agent import memory
 from app.agent.builtin_tools import register_builtin_tools
 from app.agent.external_tools import register_configured_external_tools
 from app.agent.tool_registry import ToolRegistry
 from app.agent.workflow import build_default_workflows
-from app.bot.card_builder import build_agent_chat_card
+from app.bot.card_builder import build_agent_chat_card, build_thinking_card
 from app.config import get_config
 from app.llm.factory import get_default_client
 from app.logging_utils import get_logger
@@ -51,14 +53,24 @@ def reset_tool_registry() -> None:
     _registry = None
 
 
-async def run_agent_chat(question: str, ctx: dict | None = None) -> dict:
-    """处理用户的自由提问，执行多步工具调用并返回 Schema 2.0 卡片字典。"""
+def _supports_on_reasoning(client) -> bool:
+    try:
+        sig = inspect.signature(client.chat)
+        return "on_reasoning" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+    except Exception:
+        return False
+
+
+async def run_agent_chat(question: str, ctx: dict | None = None, notify=None) -> dict:
+    """处理用户的自由提问，执行多步工具调用与流式思考追加，并返回 Schema 2.0 卡片字典。"""
     ctx = ctx or {}
     chat_id = ctx.get("chat_id") or "default_chat"
     cfg = get_config()
     agent_cfg = cfg.raw.get("agent") or {}
     max_steps = int(agent_cfg.get("max_tool_steps", 5))
-    step_timeout = float(agent_cfg.get("step_timeout_sec", 25))
+    step_timeout = float(agent_cfg.get("step_timeout_sec", 75))
     disclaimer = cfg.risk_disclaimer
 
     reg = get_tool_registry()
@@ -71,17 +83,46 @@ async def run_agent_chat(question: str, ctx: dict | None = None) -> dict:
     ]
 
     used_labels: list[str] = []
+    reasoning_steps: list[str] = []
     answer_text = ""
+    throttle_state = {"last_ts": 0.0}
+
+    def _emit_thinking(cur_step_reasoning: str, force_emit: bool = False) -> None:
+        if not notify:
+            return
+        now_m = time.monotonic()
+        if not force_emit and (now_m - throttle_state["last_ts"] < 1.0):
+            return
+        throttle_state["last_ts"] = now_m
+        combined = "\n\n".join([*reasoning_steps, cur_step_reasoning] if cur_step_reasoning else reasoning_steps)
+        card = build_thinking_card(
+            "🤖 正在思考并调取实时投研数据...",
+            thinking_text=combined,
+            used_tools=used_labels,
+            template="purple",
+        )
+        try:
+            notify(card)
+        except Exception:  # noqa: BLE001
+            pass
 
     try:
         client = get_default_client()
         schemas = reg.openai_schemas()
+        can_stream_r = _supports_on_reasoning(client) and notify is not None
 
         for _ in range(max_steps):
+            call_kwargs = {"tools": schemas, "tool_choice": "auto", "temperature": 0.4}
+            if can_stream_r:
+                call_kwargs["on_reasoning"] = lambda r_txt: _emit_thinking(r_txt, force_emit=False)
+
             resp = await asyncio.wait_for(
-                client.chat(messages, tools=schemas, tool_choice="auto", temperature=0.4),
+                client.chat(messages, **call_kwargs),
                 timeout=step_timeout,
             )
+            if getattr(resp, "reasoning_content", None):
+                reasoning_steps.append(resp.reasoning_content.strip())
+
             if not resp.tool_calls:
                 answer_text = (resp.content or "").strip()
                 break
@@ -97,13 +138,19 @@ async def run_agent_chat(question: str, ctx: dict | None = None) -> dict:
                     "tool_call_id": tc["id"],
                     "content": json.dumps(r.output, ensure_ascii=False, default=str),
                 })
+            # 工具执行完毕后立即刷新一次预占卡片的"已调取工具"副标题与思考内容
+            _emit_thinking("", force_emit=True)
 
         if not answer_text:
-            # 达到最大工具步数后强制汇总回答
+            final_kwargs = {"temperature": 0.4}
+            if can_stream_r:
+                final_kwargs["on_reasoning"] = lambda r_txt: _emit_thinking(r_txt, force_emit=False)
             resp_final = await asyncio.wait_for(
-                client.chat(messages, temperature=0.4),
+                client.chat(messages, **final_kwargs),
                 timeout=step_timeout,
             )
+            if getattr(resp_final, "reasoning_content", None):
+                reasoning_steps.append(resp_final.reasoning_content.strip())
             answer_text = (resp_final.content or "").strip()
     except Exception as e:  # noqa: BLE001
         logger.warning("Agent 问答执行异常: %s: %s", type(e).__name__, e)
@@ -124,4 +171,5 @@ async def run_agent_chat(question: str, ctx: dict | None = None) -> dict:
         answer_md=answer_text,
         used_tools=used_labels,
         disclaimer=disclaimer,
+        reasoning_text="\n\n".join(x for x in reasoning_steps if x),
     )

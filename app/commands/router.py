@@ -31,10 +31,10 @@ _BRIEFING_DISABLE_RE = re.compile(r"^(?:关闭|取消|退订|停止)(?:每日|�
 _BRIEFING_NOW_RE = re.compile(r"^(?:今日|最新|查看|看看)?(?:市场)?(?:早报|早餐)$", re.I)
 
 
-async def handle_q(code: str, chat_id: str | None = None, chat_type: str = "p2p"):
+async def handle_q(code: str, chat_id: str | None = None, chat_type: str = "p2p", notify=None):
     logger.info("Q 查询 %s", code)
     try:
-        result = await analyze_stock(code)
+        result = await analyze_stock(code, notify=notify)
     except StockNotFound:
         return NOT_FOUND.format(code=code)
     if chat_id:
@@ -93,15 +93,15 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None):
     if cmd.kind == "Q":
         if notify:
             notify(f"📊 正在分析 {display_code(cmd.code)}，预计 10-15 秒...")
-        return await handle_q(cmd.code, chat_id=chat_id, chat_type=chat_type)
+        return await handle_q(cmd.code, chat_id=chat_id, chat_type=chat_type, notify=notify)
     if cmd.kind in ("B", "S"):
         if chat_id:
             briefing_repo.ensure_subscribed(chat_id, chat_type)
         if notify:
             notify(f"📊 正在分析 {display_code(cmd.code)}，预计 10-15 秒...")
         if cmd.kind == "B":
-            return await task_service.create_b(ctx, cmd.code)
-        return await task_service.create_s(ctx, cmd.code, cmd.buy_price, cmd.quantity)
+            return await task_service.create_b(ctx, cmd.code, notify=notify)
+        return await task_service.create_s(ctx, cmd.code, cmd.buy_price, cmd.quantity, notify=notify)
     if cmd.kind == "C":
         return task_service.cancel(ctx, cmd.code)
     if cmd.kind == "L":
@@ -111,7 +111,7 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None):
     if cmd.kind == "CHAT":
         if notify:
             notify("🤖 正在思考并调取实时投研数据...")
-        return await run_agent_chat(cmd.text or text, ctx)
+        return await run_agent_chat(cmd.text or text, ctx, notify=notify)
     return HELP_TEXT
 
 

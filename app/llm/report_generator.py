@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+from typing import Callable
 
 from app.config import get_config
 from app.engine.report_builder import render_plain
@@ -47,15 +49,19 @@ def build_user_prompt(report: dict) -> str:
     )
 
 
-async def generate_report(report: dict, provider: str | None = None,
-                          model: str | None = None) -> str:
-    """生成自然语言报告; 任何异常/超时都降级为纯文本。"""
+async def generate_report(
+    report: dict,
+    provider: str | None = None,
+    model: str | None = None,
+    on_reasoning: Callable[[str], None] | None = None,
+) -> str:
+    """生成自然语言报告; 任何异常/超时都降级为纯文本。若模型返回 reasoning_content 则写入 report['_reasoning']。"""
     # 数据不足直接走纯文本, 不浪费 LLM 调用
     if report.get("data_insufficient"):
         return render_plain(report)
 
     cfg = get_config()
-    timeout = float(cfg.llm.get("timeout_seconds", 15))
+    timeout = float(cfg.llm.get("timeout_seconds", 75))
 
     try:
         client = get_llm_client(provider, model) if provider and model else get_default_client()
@@ -63,7 +69,19 @@ async def generate_report(report: dict, provider: str | None = None,
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(report)},
         ]
-        resp = await asyncio.wait_for(client.chat(messages, temperature=0.4), timeout=timeout)
+        call_kwargs: dict = {"temperature": 0.4}
+        if on_reasoning is not None:
+            try:
+                sig = inspect.signature(client.chat)
+                if "on_reasoning" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    call_kwargs["on_reasoning"] = on_reasoning
+            except Exception:
+                pass
+        resp = await asyncio.wait_for(client.chat(messages, **call_kwargs), timeout=timeout)
+        if getattr(resp, "reasoning_content", None):
+            report["_reasoning"] = resp.reasoning_content.strip()
         content = (resp.content or "").strip()
         if not content:
             raise ValueError("LLM 返回空内容")

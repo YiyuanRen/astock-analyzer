@@ -19,6 +19,8 @@ from lark_oapi.api.im.v1 import (
     CreateMessageRequest,
     CreateMessageRequestBody,
     P2ImMessageReceiveV1,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
 )
@@ -133,38 +135,82 @@ class FeishuBot:
 
     def _dispatch(self, text: str, ctx: dict) -> None:
         message_id = ctx["message_id"]
+        placeholder = {"msg_id": None}
 
-        def notify(t: str) -> None:
-            if t:
-                self.reply_text(message_id, t)
+        def notify(item) -> None:
+            if not item:
+                return
+            if isinstance(item, dict) and item.get("card"):
+                c = item["card"]
+                title = c.get("title", "🤖 正在处理...")
+                md = c.get("markdown", "")
+                tpl = c.get("template", "purple")
+                raw = c.get("raw_card")
+            else:
+                from app.bot.card_builder import build_thinking_card
+                built = build_thinking_card(str(item))["card"]
+                title, md, tpl, raw = built["title"], built["markdown"], built["template"], built["raw_card"]
+
+            if placeholder["msg_id"] is None:
+                placeholder["msg_id"] = self.reply_card(message_id, title, md, tpl, raw_card=raw)
+            else:
+                self.patch_card(placeholder["msg_id"], title, md, tpl, raw_card=raw)
 
         try:
             reply = self._on_text(text, ctx, notify)
         except Exception as e:  # 回调异常不应断开连接
             logger.exception("处理消息异常: %s", e)
             reply = "处理出错，请稍后再试。"
-        self._send_reply(message_id, reply)
+        self._send_reply(message_id, reply, placeholder_msg_id=placeholder["msg_id"])
 
-    def _send_reply(self, message_id: str, reply) -> None:
+    def _send_reply(self, message_id: str, reply, placeholder_msg_id: str | None = None) -> None:
         if not reply:
             return
         if isinstance(reply, dict) and reply.get("card"):
             c = reply["card"]
+            if placeholder_msg_id:
+                if self.patch_card(
+                    placeholder_msg_id,
+                    c.get("title", ""),
+                    c.get("markdown", ""),
+                    c.get("template", "blue"),
+                    raw_card=c.get("raw_card"),
+                ):
+                    return
             self.reply_card(message_id, c.get("title", ""), c.get("markdown", ""),
                             c.get("template", "blue"), raw_card=c.get("raw_card"))
         else:
+            if placeholder_msg_id:
+                if self.patch_card(placeholder_msg_id, "💬 提示", str(reply), "blue"):
+                    return
             self.reply_text(message_id, str(reply))
 
-    # ---- 回复(针对某条消息) ----
-    def reply_text(self, message_id: str, text: str) -> None:
-        self._reply(message_id, "text", json.dumps({"text": text}))
+    # ---- 回复(针对某条消息) & 原地更新卡片(patch) ----
+    def reply_text(self, message_id: str, text: str) -> str | None:
+        return self._reply(message_id, "text", json.dumps({"text": text}))
 
     def reply_card(self, message_id: str, title: str, markdown: str, template: str = "blue",
-                   raw_card: dict | None = None) -> None:
+                   raw_card: dict | None = None) -> str | None:
         card = _build_card(title, markdown, template, raw_card=raw_card)
-        self._reply(message_id, "interactive", json.dumps(card, ensure_ascii=False))
+        return self._reply(message_id, "interactive", json.dumps(card, ensure_ascii=False))
 
-    def _reply(self, message_id: str, msg_type: str, content: str) -> None:
+    def patch_card(self, message_id: str, title: str, markdown: str, template: str = "blue",
+                   raw_card: dict | None = None) -> bool:
+        card = _build_card(title, markdown, template, raw_card=raw_card)
+        content = json.dumps(card, ensure_ascii=False)
+        req = (
+            PatchMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(PatchMessageRequestBody.builder().content(content).build())
+            .build()
+        )
+        resp = self._rest.im.v1.message.patch(req)
+        if not resp.success():
+            logger.warning("卡片 patch 更新失败 msg_id=%s code=%s msg=%s", message_id, resp.code, resp.msg)
+            return False
+        return True
+
+    def _reply(self, message_id: str, msg_type: str, content: str) -> str | None:
         req = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
@@ -175,6 +221,8 @@ class FeishuBot:
         if not resp.success():
             logger.error("回复失败 type=%s code=%s msg=%s log_id=%s",
                          msg_type, resp.code, resp.msg, resp.get_log_id())
+            return None
+        return getattr(getattr(resp, "data", None), "message_id", None)
 
     # ---- 主动推送(按 chat_id: 群聊推群, 私聊推私聊) ----
     def send_text(self, chat_id: str, text: str) -> bool:

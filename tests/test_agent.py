@@ -99,6 +99,9 @@ def test_agent_runner_multi_step_tool_calling_and_card(monkeypatch, tmp_db):
 
         async def chat(self, messages, **kwargs):
             self.step += 1
+            on_r = kwargs.get("on_reasoning")
+            if on_r:
+                on_r(f"第{self.step}步深度思考推演中...")
             if self.step == 1:
                 tc = [{"id": "call_1", "name": "get_market_overview", "arguments": "{}"}]
                 raw = {
@@ -106,12 +109,16 @@ def test_agent_runner_multi_step_tool_calling_and_card(monkeypatch, tmp_db):
                     "tool_calls": [{"id": "call_1", "type": "function",
                                     "function": {"name": "get_market_overview", "arguments": "{}"}}],
                 }
-                return LLMResponse(content="", model="fake", tool_calls=tc, raw_message=raw)
+                return LLMResponse(
+                    content="", model="fake", tool_calls=tc, raw_message=raw,
+                    reasoning_content="第1步思考：需要调用大盘工具",
+                )
             # 验证第二轮 messages 中包含了 tool 返回的数据
             assert any(m.get("role") == "tool" and "3707.48" in m.get("content", "") for m in messages)
             return LLMResponse(
                 content="#### 📊 盘面核心结论\n- 上证指数报 **3707.48**（<font color='green'>**-1.59%**</font>），全市场普跌。",
                 model="fake",
+                reasoning_content="第2步思考：结合工具数据汇总结论",
             )
 
     monkeypatch.setattr(agent_runner, "get_default_client", lambda: FakeToolClient())
@@ -119,12 +126,18 @@ def test_agent_runner_multi_step_tool_calling_and_card(monkeypatch, tmp_db):
     ctx = {"chat_id": "oc_agent_chat", "chat_type": "p2p"}
     notes = []
     reply = run(router.handle_async("今天大盘趋势怎么样？", ctx, notify=notes.append))
-    assert notes and "正在思考" in notes[0]
+    assert notes and "正在思考" in str(notes[0])
+    # 验证中间态增量推送了思考卡片字典(含深度思考文字与已调用工具)
+    dict_notes = [n for n in notes if isinstance(n, dict) and n.get("card")]
+    assert len(dict_notes) >= 1
     card = reply["card"]
     assert card["template"] == "purple"
     assert "大盘全景与情绪温度计" in card["subtitle"]
     assert "3707.48" in card["markdown"]
     assert card["raw_card"]["schema"] == "2.0"
+    # 验证最终卡片包含默认折叠的深度思考 collapsible_panel
+    panels = [e for e in card["raw_card"]["body"]["elements"] if e.get("tag") == "collapsible_panel"]
+    assert len(panels) == 1 and panels[0]["expanded"] is False
 
     # 验证问答已被记录进 20 轮会话记忆
     hist = memory.get_history("oc_agent_chat")

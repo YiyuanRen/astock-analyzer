@@ -14,6 +14,7 @@ class LLMResponse:
     output_tokens: int = 0
     tool_calls: list[dict] | None = None
     raw_message: dict | None = None
+    reasoning_content: str = ""
 
 
 class BaseLLMClient(ABC):

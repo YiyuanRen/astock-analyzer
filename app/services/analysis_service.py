@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.bot.card_builder import build_analysis_card, build_holding_card
+from app.bot.card_builder import build_analysis_card, build_holding_card, build_thinking_card
 from app.config import get_config
 from app.data import fetcher, trading_calendar
 from app.data.market import decimals_of, display_code, market_of
@@ -109,11 +110,13 @@ class AnalysisResult:
         )
 
 
-async def _compute(code: str) -> dict:
+async def _compute(code: str, notify=None) -> dict:
     quote = await asyncio.to_thread(fetcher.fetch_quote, code)
     if not quote or quote.get("price") is None:
         raise StockNotFound(code)
 
+    disp = display_code(code)
+    name = quote.get("name") or disp
     dec = decimals_of(code)
     data = await fetcher.fetch_all_levels(code)
 
@@ -126,14 +129,33 @@ async def _compute(code: str) -> dict:
     daily, m30, m5 = await asyncio.to_thread(run_chan)
     ml = multi_level_analyze(daily, m30, m5, quote.get("price"), decimals=dec)
     report = build_report(quote, daily, m30, m5, ml, data["daily"])
-    markdown = await generate_report(report)
 
-    disp = display_code(code)
-    name = quote.get("name") or disp
+    last_patch = {"ts": 0.0}
+
+    def _on_r(r_txt: str) -> None:
+        if not notify:
+            return
+        now_m = time.monotonic()
+        if now_m - last_patch["ts"] < 1.0:
+            return
+        last_patch["ts"] = now_m
+        try:
+            notify(build_thinking_card(
+                f"📊 正在深度分析 {name} {disp}...",
+                thinking_text=r_txt,
+                used_tools=["行情快照", "日线/30m/5m缠论计算"],
+                template="blue",
+            ))
+        except Exception:
+            pass
+
+    markdown = await generate_report(report, on_reasoning=_on_r if notify else None)
+    reasoning = report.pop("_reasoning", "") or ""
+
     template = {"买入": "red", "卖出": "green"}.get(ml.get("operation_direction"), "blue")
     return {"code": code, "name": name, "quote": quote, "daily": daily, "m30": m30, "m5": m5,
-            "ml": ml, "report": report, "markdown": markdown, "template": template,
-            "title": f"📊 {name} {disp}"}
+            "ml": ml, "report": report, "markdown": markdown, "reasoning": reasoning,
+            "template": template, "title": f"📊 {name} {disp}"}
 
 
 def _cache_valid(entry: dict, current: datetime, market: str = "CN") -> bool:
@@ -147,7 +169,7 @@ def _cache_valid(entry: dict, current: datetime, market: str = "CN") -> bool:
 
 
 async def analyze_stock(code: str, *, force: bool = False, fresh_within_sec: int = 0,
-                        current: datetime | None = None) -> AnalysisResult:
+                        current: datetime | None = None, notify=None) -> AnalysisResult:
     """分析一只股票。
 
     force=False: 走缓存规则; force=True: 强制重算(定时任务用)。
@@ -166,7 +188,11 @@ async def analyze_stock(code: str, *, force: bool = False, fresh_within_sec: int
             return AnalysisResult(code, p.get("name") or code, p, cached["analyzed_at"], True)
 
     logger.info("分析 %s (force=%s)", code, force)
-    payload = await _compute(code)
+    try:
+        sig = len(__import__("inspect").signature(_compute).parameters)
+    except Exception:
+        sig = 1
+    payload = await (_compute(code, notify=notify) if sig >= 2 else _compute(code))
     analyzed_at = current.astimezone(TZ).isoformat(timespec="seconds")
     cache_repo.put(code, payload, trading_calendar.session_key(current, market=mkt), analyzed_at)
     return AnalysisResult(code, payload["name"], payload, analyzed_at, False)
