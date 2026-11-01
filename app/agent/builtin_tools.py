@@ -21,7 +21,7 @@ from app.engine import holding
 from app.engine.chan_analyzer import ChanAnalyzer
 from app.engine.multi_level import multi_level_analyze
 from app.models import briefing_repo, cache_repo, task_repo
-from app.services import briefing_service
+from app.services import backtest_service, briefing_service, portfolio_service, screener_service
 from app.services.analysis_service import StockNotFound, analyze_stock
 
 _index_analyzer = ChanAnalyzer()
@@ -222,6 +222,49 @@ async def _tool_manage_morning_briefing(ctx: dict, action: str = "status") -> di
     }
 
 
+async def _tool_get_portfolio_summary(ctx: dict) -> dict:
+    chat_id = (ctx or {}).get("chat_id") or "cli_chat"
+    summary = await portfolio_service.get_portfolio_summary(chat_id)
+    summary["open_positions"] = [
+        {k: v for k, v in it.items() if k != "position"}
+        for it in (summary.get("open_positions") or [])
+    ]
+    summary["closed_positions"] = [p.__dict__ for p in (summary.get("closed_positions") or [])]
+    return summary
+
+
+async def _tool_run_stock_backtest(code_or_name: str, years: int = 2) -> dict:
+    raw = (code_or_name or "").strip()
+    parsed = parse_code(raw)
+    code = parsed[0] if parsed else None
+    if not code:
+        matches = await asyncio.to_thread(fetcher.search_security_suggest, raw, 5)
+        for m in matches:
+            p = parse_code(str(m.get("code") or ""))
+            if p:
+                code = p[0]
+                break
+    if not code:
+        return {"error": f"未能识别股票代码或名称: {code_or_name}"}
+    from app.engine.backtester import run_chan_backtest
+    years = max(1, min(int(years or 2), 5))
+    quote = await asyncio.to_thread(fetcher.fetch_quote, code)
+    name = (quote or {}).get("name") or display_code(code)
+    df = await asyncio.to_thread(fetcher.fetch_daily, code, years)
+    bt = await asyncio.to_thread(run_chan_backtest, df, code, name, 100000.0)
+    if not bt.get("error"):
+        rid = f"{code}_{years}y"
+        html_doc = backtest_service.render_backtest_html(bt)
+        backtest_service.save_backtest_report(rid, code, name, years, bt, html_doc)
+        bt["report_url"] = f"{briefing_service.public_base_url()}/backtests/{rid}"
+        bt.pop("equity_curve", None)
+    return bt
+
+
+async def _tool_run_chan_screener(scope: str = "") -> dict:
+    return await screener_service.run_chan_screener(scope or None, max_candidates=8)
+
+
 def register_builtin_tools(registry: ToolRegistry) -> None:
     registry.register(FunctionTool(
         name="search_security",
@@ -348,4 +391,38 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
         },
         fn=_tool_manage_morning_briefing,
         pass_ctx=True,
+    ))
+    registry.register(FunctionTool(
+        name="get_portfolio_summary",
+        label="模拟账户持仓与总收益",
+        description="查询当前会话的 10 万 RMB 模拟实操账户总览（总资产、可用现金、总盈亏额、总收益率、历史平仓胜率、当前各股持仓明细及 A股 T+1 可卖/冻结股数）。",
+        parameters={"type": "object", "properties": {}},
+        fn=_tool_get_portfolio_summary,
+        pass_ctx=True,
+    ))
+    registry.register(FunctionTool(
+        name="run_stock_backtest",
+        label="缠论历史回测(无未来函数)",
+        description="对指定股票执行基于 chan.py step_load 逐根 K 线回放的无未来函数缠论回测（10万初始本金、A股遵循T+1），返回策略总收益、超额收益、胜率、盈亏比、最大回撤、分买点类型表现及 HTML 报告链接。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "code_or_name": {"type": "string", "description": "股票代码或中文名称"},
+                "years": {"type": "integer", "description": "回测年数(默认2，范围1-5)"},
+            },
+            "required": ["code_or_name"],
+        },
+        fn=_tool_run_stock_backtest,
+    ))
+    registry.register(FunctionTool(
+        name="run_chan_screener",
+        label="两级漏斗缠论智能选股",
+        description="执行两级漏斗缠论智能选股：第一层按主力资金净流入/强势板块或指定板块宽筛活跃股，第二层并发跑多级别缠论与历史回测胜率校验，筛出当下正处于买点或中枢企稳的标的。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string", "description": "选股范围：留空=全市场主力流入&强势板块龙头，或传板块名如'半导体'、'白酒'、'港股'"},
+            },
+        },
+        fn=_tool_run_chan_screener,
     ))

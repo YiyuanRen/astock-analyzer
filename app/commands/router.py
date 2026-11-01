@@ -1,13 +1,15 @@
 """指令路由: 把解析后的指令分发到对应处理逻辑, 返回回复(文本或卡片字典)。
 
-- Q / B / S / C / L / M: 走确定性指令处理链路(其中 Q/B/S 会自动将分析摘要记入会话 memory)
-- HELP (H / help / 帮助 / ?): 返回指令帮助说明
-- CHAT (任意自然语言提问): 路由给智能投研 Agent (支持多步工具调用 + 20 轮会话记忆)
+支持:
+- Q / B / S / C / L / M: 核心跟踪与分析指令
+- X / P / T: 模拟实操账本(卖出减仓/平仓、账户总览、交易流水)
+- BT / PICK: 缠论无未来函数回测、两级漏斗智能选股
+- 早报快捷词: 今日早报 / 开启早报 / 关闭早报
+- HELP / CHAT: 指令帮助与智能投研 Agent 自由问答兜底
 """
 from __future__ import annotations
 
 import asyncio
-
 import re
 
 from app.agent import memory
@@ -19,7 +21,13 @@ from app.config import get_config
 from app.data.market import display_code
 from app.logging_utils import get_logger
 from app.models import briefing_repo
-from app.services import briefing_service, task_service
+from app.services import (
+    backtest_service,
+    briefing_service,
+    portfolio_service,
+    screener_service,
+    task_service,
+)
 from app.services.analysis_service import StockNotFound, analyze_stock
 
 logger = get_logger("commands.router")
@@ -71,7 +79,6 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None):
     chat_type = ctx.get("chat_type") or "p2p"
     raw_s = (text or "").strip()
 
-    # 快捷匹配早报开启/关闭/立即查看
     if _BRIEFING_ENABLE_RE.match(raw_s):
         if chat_id:
             briefing_repo.set_subscription(chat_id, True, chat_type)
@@ -102,6 +109,20 @@ async def handle_async(text: str, ctx: dict | None = None, notify=None):
         if cmd.kind == "B":
             return await task_service.create_b(ctx, cmd.code, notify=notify)
         return await task_service.create_s(ctx, cmd.code, cmd.buy_price, cmd.quantity, notify=notify)
+    if cmd.kind == "X":
+        return await portfolio_service.execute_sell_x(ctx, cmd.code, cmd.buy_price, cmd.quantity)
+    if cmd.kind == "P":
+        return await portfolio_service.handle_portfolio_p(ctx)
+    if cmd.kind == "T":
+        return portfolio_service.handle_trades_t(ctx, cmd.code)
+    if cmd.kind == "BT":
+        if notify:
+            notify(f"📈 正在对 {display_code(cmd.code)} 执行逐根K线无未来函数缠论回测...")
+        return await backtest_service.execute_backtest_bt(cmd.code, years=cmd.quantity or 2)
+    if cmd.kind == "PICK":
+        if notify:
+            notify(f"📡 正在执行两级漏斗缠论智能选股（{cmd.text or '主力与强势板块龙头池'}），预计 15-25 秒...")
+        return await screener_service.execute_pick_card(cmd.text)
     if cmd.kind == "C":
         return task_service.cancel(ctx, cmd.code)
     if cmd.kind == "L":

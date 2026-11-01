@@ -18,7 +18,8 @@ from app.data import fetcher
 from app.data.market import daily_report_time_str, decimals_of, display_code
 from app.engine import holding
 from app.logging_utils import get_logger
-from app.models import cache_repo, task_repo
+from app.models import cache_repo, task_repo, trade_repo
+from app.models.trade_repo import TradeError
 from app.services.analysis_service import StockNotFound, analyze_stock
 
 logger = get_logger("services.task")
@@ -88,15 +89,49 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         task_repo.cancel(existing.id)
         existing, switched = None, True
 
-    if existing:  # 已有 S: 更新成本/数量(未提供则沿用), 并按最新结构重置止损
-        cost = buy_price if buy_price is not None else existing.buy_price
-        qty = quantity if quantity is not None else existing.buy_quantity
+    notes_list: list[str] = []
+    if switched:
+        notes_list.append("已自动取消该股的买入跟踪")
+
+    bsp_now = res.daily.get("buy_sell_point") or "无信号"
+
+    if existing:  # 已有 S: 若同时传入了新股数则视为加仓(ADD), 仅传价格则修正成本并重置止损
+        if quantity is not None:
+            fill_px = buy_price if buy_price is not None else price
+            try:
+                buy_res = trade_repo.record_buy(chat_id, code, res.name, fill_px, quantity, chan_bsp=bsp_now)
+            except TradeError as e:
+                return f"⚠️ {e}"
+            pos = buy_res["position"]
+            cost, qty = pos.avg_cost, pos.current_qty
+            notes_list.append(
+                f"➕ 加仓 {fill_px:g} × {quantity} 股｜总持仓 {qty} 股（均价 {cost:g}，可卖 {buy_res['sellable_qty']} 股）"
+                f"｜可用现金 {buy_res['cash_balance']:,.2f} 元"
+            )
+        else:
+            cost = buy_price if buy_price is not None else existing.buy_price
+            qty = existing.buy_quantity
         lv = holding.compute_levels(res.daily, res.ml, price, cost, params, decimals=dec)
         task_repo.update_fields(existing.id, buy_price=cost, buy_quantity=qty, stop_loss=lv.stop_loss,
                                 target_price=lv.target_price, stop_alert_state=None, stop_alert_at=None)
-        title, note = "🔄 已更新持仓跟踪（止损已按最新结构重置）", ""
+        title = "🔄 已更新持仓跟踪（止损已按最新结构重置）"
     else:
-        cost, qty = buy_price, quantity
+        if buy_price is not None or quantity is not None:
+            fill_px = buy_price if buy_price is not None else price
+            fill_qty = quantity if quantity is not None else 100
+            try:
+                buy_res = trade_repo.record_buy(chat_id, code, res.name, fill_px, fill_qty, chan_bsp=bsp_now)
+            except TradeError as e:
+                return f"⚠️ {e}"
+            pos = buy_res["position"]
+            cost = pos.avg_cost
+            qty = pos.current_qty if quantity is not None else None
+            notes_list.append(
+                f"💰 记入实操账本：可用现金 {buy_res['cash_balance']:,.2f} 元"
+                f"｜今日可卖 {buy_res['sellable_qty']} 股 / T+1冻结 {buy_res['frozen_qty']} 股"
+            )
+        else:
+            cost, qty = None, None
         lv = holding.compute_levels(res.daily, res.ml, price, cost, params, decimals=dec)
         try:
             task_repo.create_task(chat_id, chat_type, by, code, res.name, "S", cost, qty,
@@ -104,7 +139,6 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         except sqlite3.IntegrityError:
             pass
         title = "💼 已建立持仓跟踪"
-        note = "已自动取消该股的买入跟踪" if switched else ""
 
     memory.record_command_analysis(chat_id, f"S {code}", res)
     return res.to_holding_card(
@@ -115,7 +149,7 @@ async def create_s(ctx: dict, code: str, buy_price: float | None, quantity: int 
         stop=lv.stop_loss,
         stop_source=lv.stop_source,
         target=lv.target_price,
-        notes=[note] if note else None,
+        notes=notes_list or None,
     )
 
 

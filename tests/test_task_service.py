@@ -152,13 +152,13 @@ def test_list_empty_and_scoped():
 
 def test_list_contents(monkeypatch):
     run(ts.create_b(PRIV, "000001"))
-    run(ts.create_s(PRIV, "600519", 1200.0, 100))
+    run(ts.create_s(PRIV, "600519", 1200.0, 50))
     cache_repo.put("000001", make_result().payload, "k", "2026-10-08T10:00:00+08:00")
     r = run(ts.list_tasks(PRIV))
     m = md(r)
     assert "共 2 个" in r["card"]["title"]
     assert "**平安银行 000001**｜B 买入跟踪" in m and "最近结论：观望｜无信号（10:00）" in m
-    assert "**贵州茅台 600519**｜S 持仓跟踪" in m and "成本：1200 × 100" in m and "止损：" in m and "浮盈 +4.88%" in m
+    assert "**贵州茅台 600519**｜S 持仓跟踪" in m and "成本：1200 × 50" in m and "止损：" in m and "浮盈 +4.88%" in m
     assert "最近结论：尚无分析" in m   # 600519 没有缓存
 
 

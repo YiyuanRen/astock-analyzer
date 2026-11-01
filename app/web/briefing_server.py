@@ -1,27 +1,47 @@
-"""内置轻量只读 HTTP 服务(提供早报 HTML 可视化市场地图与历史归档访问)。
+"""内置轻量只读 HTTP 服务(提供早报 HTML、实操账户看板 /portfolio、回测报告 /backtests/<id>)。
 
 路由:
 - GET /                         -> 历史早报归档目录页
 - GET /briefings                -> 历史早报归档目录页
 - GET /briefings/latest         -> 最新一期早报 HTML 页面
 - GET /briefings/YYYY-MM-DD     -> 指定日期的早报 HTML 页面(磁盘+SQLite 双重持久化恢复)
-- GET /briefings/YYYY-MM-DD.html-> 同上
+- GET /portfolio                -> 10万本金模拟实操账户与交易流水可视化看板
+- GET /backtests/<id>           -> 缠论无未来函数回测 HTML 报告
 - GET /healthz                  -> 健康检查 {"status": "ok"}
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from app.logging_utils import get_logger
-from app.models import briefing_repo
+from app.models import briefing_repo, trade_repo
+from app.models.database import get_conn
+from app.services import backtest_service, portfolio_service
 from app.services.briefing_html import render_archive_html
 
 logger = get_logger("web.briefing_server")
 
 _DATE_ROUTE = re.compile(r"^/briefings/(20\d{2}-\d{2}-\d{2})(?:\.html)?/?$")
+_BT_ROUTE = re.compile(r"^/backtests/([A-Za-z0-9_.-]+?)(?:\.html)?/?$")
+
+
+def _default_active_chat_id() -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT chat_id FROM positions WHERE chat_id != 'cli_chat' ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            return row["chat_id"]
+        row2 = conn.execute(
+            "SELECT chat_id FROM tasks WHERE chat_id != 'cli_chat' ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+        if row2:
+            return row2["chat_id"]
+    return "cli_chat"
 
 
 class BriefingHTTPHandler(BaseHTTPRequestHandler):
@@ -38,7 +58,10 @@ class BriefingHTTPHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlparse(self.path).path
+        parsed_u = urlparse(self.path)
+        path = parsed_u.path
+        qs = parse_qs(parsed_u.query)
+
         if path == "/healthz":
             body = b'{"status":"ok"}'
             self.send_response(200)
@@ -61,6 +84,23 @@ class BriefingHTTPHandler(BaseHTTPRequestHandler):
             self._send_html(200, latest.html_content)
             return
 
+        if path in ("/portfolio", "/portfolio/"):
+            chat_id = (qs.get("chat_id") or [None])[0] or _default_active_chat_id()
+            summary = asyncio.run(portfolio_service.get_portfolio_summary(chat_id))
+            logs = trade_repo.list_trade_logs(chat_id, limit=50)
+            self._send_html(200, portfolio_service.render_portfolio_html(summary, logs))
+            return
+
+        m_bt = _BT_ROUTE.match(path)
+        if m_bt:
+            rid = m_bt.group(1)
+            bt_html = backtest_service.get_backtest_html(rid)
+            if bt_html:
+                self._send_html(200, bt_html)
+                return
+            self._send_html(404, f"<h2>未找到回测报告 {rid}</h2><p>请在飞书发送 <code>BT 代码</code> 生成。</p>")
+            return
+
         m = _DATE_ROUTE.match(path)
         if m:
             r_date = m.group(1)
@@ -77,13 +117,13 @@ class BriefingHTTPHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_html(404, "<h1>404 Not Found</h1><p><a href='/briefings'>进入市场早报归档</a></p>")
+        self._send_html(404, "<h1>404 Not Found</h1><p><a href='/briefings'>进入市场早报归档</a> · <a href='/portfolio'>实操账户看板</a></p>")
 
 
 def start_briefing_http_server(host: str = "0.0.0.0", port: int = 8000) -> ThreadingHTTPServer:
-    """在后台守护线程启动早报 HTTP 服务并返回 server 实例。"""
+    """在后台守护线程启动 Web 服务并返回 server 实例。"""
     server = ThreadingHTTPServer((host, port), BriefingHTTPHandler)
     t = threading.Thread(target=server.serve_forever, name="briefing-http", daemon=True)
     t.start()
-    logger.info("早报 Web 服务已启动: http://%s:%d/briefings", host, port)
+    logger.info("Web 服务已启动: http://%s:%d (/briefings | /portfolio | /backtests)", host, port)
     return server

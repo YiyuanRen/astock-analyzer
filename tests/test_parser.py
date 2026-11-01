@@ -47,7 +47,7 @@ def test_l_and_m():
     assert (c.provider, c.model) == ("deepseek", "deepseek-chat")
 
 
-@pytest.mark.parametrize("text", ["H", "help", "帮助", "?", "？", "Q 700", "Q 1234", "Q 1234567", "Q000001", "", None, "X 000001"])
+@pytest.mark.parametrize("text", ["H", "help", "帮助", "?", "？", "Q 700", "Q 1234", "Q 1234567", "Q000001", "", None, "Z 000001"])
 def test_invalid_or_help_goes_help(text):
     assert parse(text).kind == "HELP"
 
