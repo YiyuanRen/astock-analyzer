@@ -334,6 +334,10 @@ async def morning_briefing_job(
         return stats
     except Exception as e:  # noqa: BLE001
         logger.exception("早报 %s 生成失败: %s", r_date, e)
+        if not is_final_attempt and not force:
+            logger.info("早报 %s 生成异常, 等待下一重试点继续尝试", r_date)
+            stats["skipped"] = "生成异常_待重试"
+            return stats
         latest = briefing_repo.get_latest_briefing()
         latest_d = latest.report_date if latest else None
         latest_u = briefing_service.briefing_page_url(latest_d) if latest_d else None

@@ -268,9 +268,6 @@ def build_analysis_card(
     flat_parts.append(chan_summary)
 
     elements.append({"tag": "hr"})
-    reasoning_txt = (payload.get("reasoning") or "").strip()
-    if reasoning_txt:
-        elements.append(thinking_collapsible_panel(reasoning_txt))
     disclaimer = report.get("disclaimer") or "⚠️ 仅供参考，不构成投资建议"
     llm_md = (payload.get("markdown") or "").strip()
     body_md = llm_md[:-len(disclaimer)].rstrip() if llm_md.endswith(disclaimer) else llm_md
@@ -398,9 +395,6 @@ def build_holding_card(
     flat_parts.append(chan_summary)
 
     elements.append({"tag": "hr"})
-    reasoning_txt = (payload.get("reasoning") or "").strip()
-    if reasoning_txt:
-        elements.append(thinking_collapsible_panel(reasoning_txt))
     disclaimer = report.get("disclaimer") or "⚠️ 仅供参考，不构成投资建议"
     llm_md = (payload.get("markdown") or "").strip()
     body_md = llm_md[:-len(disclaimer)].rstrip() if llm_md.endswith(disclaimer) else llm_md
@@ -618,35 +612,23 @@ def build_thinking_card(
     used_tools: list[str] | None = None,
     template: str = "purple",
 ) -> dict:
-    """构建预占与流式更新的『正在深度思考...』Schema 2.0 卡片。"""
+    """构建预占与工具进度更新的 Schema 2.0 卡片(不打印重复冗长的模型思考草稿)。"""
     if used_tools:
         uniq = list(dict.fromkeys(used_tools))
         subtitle = "🔧 已调取：" + " · ".join(uniq[:4])
+        md = f"<font color='grey'>⏳ 已完成数据调取（{'、'.join(uniq[:4])}），正在综合推演生成结论，完成后将自动替换本卡片...</font>"
     else:
-        subtitle = "💭 DeepSeek-V4-Pro 深度思考实时推演中..."
+        subtitle = "⏳ 正在拉取实时行情与多级别结构数据..."
+        md = "<font color='grey'>⏳ 正在调取实时数据并执行多维推演，完成后将直接在此卡片展示最终报告...</font>"
 
-    elements: list[dict] = []
-    flat_lines = [status_title]
-
-    if thinking_text and thinking_text.strip():
-        clean = thinking_text.strip()
-        # 保持最新 1200 字滚动展示, 避免频繁 patch 时超过卡片大小限制或刷屏过长
-        tail = clean if len(clean) <= 1200 else ("...(思考滚动中)...\n" + clean[-1200:])
-        md = f"**💭 深度思考中（实时）**：\n<font color='grey'>{tail}</font>"
-        elements.append({"tag": "markdown", "content": md})
-        flat_lines.append(md)
-    else:
-        md = "<font color='grey'>⏳ 正在拉取实时行情数据并启动深度推理，思考过程将在此实时滚动展示...</font>"
-        elements.append({"tag": "markdown", "content": md})
-        flat_lines.append(md)
-
+    elements: list[dict] = [{"tag": "markdown", "content": md}]
     raw_card = schema2_card(status_title, subtitle, template, elements)
     return {
         "card": {
             "title": status_title,
             "subtitle": subtitle,
             "template": template,
-            "markdown": "\n\n".join(flat_lines),
+            "markdown": f"{status_title}\n\n{md}",
             "raw_card": raw_card,
         }
     }
@@ -677,17 +659,13 @@ def build_agent_chat_card(
 
     elements: list[dict] = [
         banner_box(f"**💬 提问**：{q_short}", bg="violet-50"),
-    ]
-    if reasoning_text and reasoning_text.strip():
-        elements.append(thinking_collapsible_panel(reasoning_text))
-    elements.extend([
         {"tag": "markdown", "content": body_md or answer_md},
         {"tag": "hr"},
         {
             "tag": "markdown",
             "content": f"<font color='grey'>💡 发送 H 查看快捷指令(Q/B/S/C/L/M) · {disclaimer}</font>",
         },
-    ])
+    ]
 
     flat_md = f"**💬 提问**：{q_short}\n\n{body_md}\n\n{disclaimer}"
     raw_card = schema2_card(title, subtitle, "purple", elements)

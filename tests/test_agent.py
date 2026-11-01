@@ -135,9 +135,9 @@ def test_agent_runner_multi_step_tool_calling_and_card(monkeypatch, tmp_db):
     assert "大盘全景与情绪温度计" in card["subtitle"]
     assert "3707.48" in card["markdown"]
     assert card["raw_card"]["schema"] == "2.0"
-    # 验证最终卡片包含默认折叠的深度思考 collapsible_panel
+    # 验证最终卡片不再渲染冗余的 collapsible_panel 思考草稿框
     panels = [e for e in card["raw_card"]["body"]["elements"] if e.get("tag") == "collapsible_panel"]
-    assert len(panels) == 1 and panels[0]["expanded"] is False
+    assert len(panels) == 0
 
     # 验证问答已被记录进 20 轮会话记忆
     hist = memory.get_history("oc_agent_chat")

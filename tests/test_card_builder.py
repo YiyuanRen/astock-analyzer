@@ -165,21 +165,20 @@ def test_prompt_and_fallback_contain_no_placeholder_junk():
     assert "暂无" not in plain and "#### 💡 走势结构与深度解读" in plain
 
 
-def test_thinking_card_and_collapsible_panel():
+def test_thinking_card_shows_tool_progress_without_raw_reasoning_dump():
     t_card = build_thinking_card(
         "🤖 正在思考并调取实时投研数据...",
-        thinking_text="第一步：先看上证指数日线笔段结构...",
+        thinking_text="这段冗长的思考草稿不应被打印到卡片上",
         used_tools=["大盘全景与情绪温度计"],
     )["card"]
     assert "大盘全景与情绪温度计" in t_card["subtitle"]
-    assert "第一步：先看上证指数日线笔段结构" in t_card["markdown"]
+    assert "这段冗长的思考草稿不应被打印到卡片上" not in t_card["markdown"]
 
     final_card = build_agent_chat_card(
         "今天大盘怎么样？",
         "#### 📊 结论\n- 震荡",
         used_tools=["大盘全景与情绪温度计"],
-        reasoning_text="这是完整的模型深度思考过程内容",
+        reasoning_text="这段冗长的思考草稿不应出现在折叠面板",
     )["card"]["raw_card"]
     panels = [e for e in final_card["body"]["elements"] if e.get("tag") == "collapsible_panel"]
-    assert len(panels) == 1 and panels[0]["expanded"] is False
-    assert "这是完整的模型深度思考过程内容" in json.dumps(panels[0], ensure_ascii=False)
+    assert len(panels) == 0

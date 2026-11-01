@@ -129,32 +129,11 @@ async def _compute(code: str, notify=None) -> dict:
     daily, m30, m5 = await asyncio.to_thread(run_chan)
     ml = multi_level_analyze(daily, m30, m5, quote.get("price"), decimals=dec)
     report = build_report(quote, daily, m30, m5, ml, data["daily"])
-
-    last_patch = {"ts": 0.0}
-
-    def _on_r(r_txt: str) -> None:
-        if not notify:
-            return
-        now_m = time.monotonic()
-        if now_m - last_patch["ts"] < 1.0:
-            return
-        last_patch["ts"] = now_m
-        try:
-            notify(build_thinking_card(
-                f"📊 正在深度分析 {name} {disp}...",
-                thinking_text=r_txt,
-                used_tools=["行情快照", "日线/30m/5m缠论计算"],
-                template="blue",
-            ))
-        except Exception:
-            pass
-
-    markdown = await generate_report(report, on_reasoning=_on_r if notify else None)
-    reasoning = report.pop("_reasoning", "") or ""
+    markdown = await generate_report(report)
 
     template = {"买入": "red", "卖出": "green"}.get(ml.get("operation_direction"), "blue")
     return {"code": code, "name": name, "quote": quote, "daily": daily, "m30": m30, "m5": m5,
-            "ml": ml, "report": report, "markdown": markdown, "reasoning": reasoning,
+            "ml": ml, "report": report, "markdown": markdown,
             "template": template, "title": f"📊 {name} {disp}"}
 
 

@@ -127,10 +127,11 @@ async def generate_structured_map(article: BriefingArticle) -> dict:
         {"role": "system", "content": BRIEFING_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
-    # 早报内容较丰富, 给予 90 秒超时
+    # deepseek-v4-pro 开启深度思考时 max_tokens 包含 reasoning_tokens + content_tokens,
+    # 设为 16000 保证思考后有充足额度输出完整 JSON, 并给予 180 秒超时
     resp = await asyncio.wait_for(
-        client.chat(messages, temperature=0.3, max_tokens=4000),
-        timeout=90.0,
+        client.chat(messages, temperature=0.3, max_tokens=16000),
+        timeout=180.0,
     )
     if not resp.content:
         raise RuntimeError("LLM 返回早报内容为空")

@@ -83,21 +83,13 @@ async def run_agent_chat(question: str, ctx: dict | None = None, notify=None) ->
     ]
 
     used_labels: list[str] = []
-    reasoning_steps: list[str] = []
     answer_text = ""
-    throttle_state = {"last_ts": 0.0}
 
-    def _emit_thinking(cur_step_reasoning: str, force_emit: bool = False) -> None:
-        if not notify:
+    def _emit_tool_progress() -> None:
+        if not notify or not used_labels:
             return
-        now_m = time.monotonic()
-        if not force_emit and (now_m - throttle_state["last_ts"] < 1.0):
-            return
-        throttle_state["last_ts"] = now_m
-        combined = "\n\n".join([*reasoning_steps, cur_step_reasoning] if cur_step_reasoning else reasoning_steps)
         card = build_thinking_card(
             "🤖 正在思考并调取实时投研数据...",
-            thinking_text=combined,
             used_tools=used_labels,
             template="purple",
         )
@@ -109,20 +101,12 @@ async def run_agent_chat(question: str, ctx: dict | None = None, notify=None) ->
     try:
         client = get_default_client()
         schemas = reg.openai_schemas()
-        can_stream_r = _supports_on_reasoning(client) and notify is not None
 
         for _ in range(max_steps):
-            call_kwargs = {"tools": schemas, "tool_choice": "auto", "temperature": 0.4}
-            if can_stream_r:
-                call_kwargs["on_reasoning"] = lambda r_txt: _emit_thinking(r_txt, force_emit=False)
-
             resp = await asyncio.wait_for(
-                client.chat(messages, **call_kwargs),
+                client.chat(messages, tools=schemas, tool_choice="auto", temperature=0.4),
                 timeout=step_timeout,
             )
-            if getattr(resp, "reasoning_content", None):
-                reasoning_steps.append(resp.reasoning_content.strip())
-
             if not resp.tool_calls:
                 answer_text = (resp.content or "").strip()
                 break
@@ -138,19 +122,14 @@ async def run_agent_chat(question: str, ctx: dict | None = None, notify=None) ->
                     "tool_call_id": tc["id"],
                     "content": json.dumps(r.output, ensure_ascii=False, default=str),
                 })
-            # 工具执行完毕后立即刷新一次预占卡片的"已调取工具"副标题与思考内容
-            _emit_thinking("", force_emit=True)
+            # 工具执行完毕后刷新一次预占卡片的"已调取工具"副标题
+            _emit_tool_progress()
 
         if not answer_text:
-            final_kwargs = {"temperature": 0.4}
-            if can_stream_r:
-                final_kwargs["on_reasoning"] = lambda r_txt: _emit_thinking(r_txt, force_emit=False)
             resp_final = await asyncio.wait_for(
-                client.chat(messages, **final_kwargs),
+                client.chat(messages, temperature=0.4),
                 timeout=step_timeout,
             )
-            if getattr(resp_final, "reasoning_content", None):
-                reasoning_steps.append(resp_final.reasoning_content.strip())
             answer_text = (resp_final.content or "").strip()
     except Exception as e:  # noqa: BLE001
         logger.warning("Agent 问答执行异常: %s: %s", type(e).__name__, e)
@@ -171,5 +150,4 @@ async def run_agent_chat(question: str, ctx: dict | None = None, notify=None) ->
         answer_md=answer_text,
         used_tools=used_labels,
         disclaimer=disclaimer,
-        reasoning_text="\n\n".join(x for x in reasoning_steps if x),
     )
